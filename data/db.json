@@ -1,0 +1,1323 @@
+{
+  "users": [
+    {
+      "id": "usr-student-1",
+      "userIdCode": "M5-2026-001",
+      "name": "Sayuri Perera",
+      "email": "sayuri@man5he.lk",
+      "whatsappNumber": "+94771234567",
+      "role": "student",
+      "passwordHash": "391ef0b4fa0f873454aac7685e74d5f6:133aff401569c4892dbc7a2f01414559b2cccfb42d211cf1b355807551d17da2e1778478a425d70849ed4dda3e2b7cf3a49ab028c05fede9f3963b1e4f766d90",
+      "totpSecret": "JBSWY3DPEHPK3PXP",
+      "emailVerified": true,
+      "totpEnabled": true,
+      "subscriptionStatus": "active",
+      "subscriptionPlanId": "plan-term",
+      "subscriptionExpiresAt": "2027-02-15T04:20:40.449Z",
+      "currentLevel": "Foundation Simple",
+      "stars": 194,
+      "streakDays": 8,
+      "createdAt": "2026-01-05T08:00:00.000Z",
+      "lastPracticeDate": "2026-11-18",
+      "dailyGoalQuestions": 25
+    },
+    {
+      "id": "usr-admin-1",
+      "userIdCode": "M5-ADMIN-01",
+      "name": "Kavinda Wickramasinghe",
+      "email": "admin@man5he.lk",
+      "whatsappNumber": "+94719876543",
+      "role": "admin",
+      "passwordHash": "e15d560c73e76cf549fcd155c9844107:d4fc77a22012fb788bbfaefdf190a99f25f8fdd64361a4b9a41efc677815378e742d55712b5c961146350db81c5a8250adb14849af518d563f92f7cf77dc31ea",
+      "totpSecret": "KRSXG5CTMVRXEZLU",
+      "emailVerified": true,
+      "totpEnabled": true,
+      "subscriptionStatus": "active",
+      "subscriptionPlanId": "plan-annual",
+      "subscriptionExpiresAt": "2028-01-01T00:00:00.000Z",
+      "currentLevel": "Scholarship Master",
+      "stars": 500,
+      "streakDays": 30,
+      "createdAt": "2026-01-01T08:00:00.000Z"
+    }
+  ],
+  "curatedQuizzes": [
+    {
+      "id": "CUR-001",
+      "source": "curated",
+      "questionSi": "පහත දැක්වෙන රටාවේ ඊළඟ අංකය කුමක්ද? 5 - 2, 4, 5, 2, ...",
+      "questionEn": "What is the next pair/number in the rhythmic pattern? 5 - 2, 4, 5, 2, ...",
+      "options": [
+        "4",
+        "5",
+        "3",
+        "6"
+      ],
+      "correctIndex": 0,
+      "memoryTrickTitle": "Musical Beat Echo (සංගීත තාල මතකය)",
+      "memoryTrickBody": "Clap the numbers like a drumbeat: \"5-2-4, 5-2-4\"! Whenever you see repeating 3-number groups, say them out loud like a song chorus to spot the missing beat.",
+      "explanation": "The 3-element cycle [5, 2, 4] repeats: 5, 2, 4, 5, 2, so the next number is 4.",
+      "attributes": {
+        "intelligenceMeasure": 54,
+        "correctProbability": 0.74,
+        "wrongProbability": 0.26,
+        "examPriority": 9,
+        "quizStrength": 78,
+        "difficultyTier": "Moderate",
+        "cognitiveDomain": "Logical & Number Patterns",
+        "estimatedSeconds": 35
+      },
+      "createdAt": "2026-01-10T08:00:00.000Z"
+    },
+    {
+      "id": "CUR-002",
+      "source": "curated",
+      "questionSi": "බස් රථයක මගීන් 42 ක් සිටිති. පළමු නැවතුමේදී 15 ක් බැස 8 ක් නැග්ගේ නම් දැන් බස් රථයේ සිටින මගීන් ගණන කීයද?",
+      "questionEn": "A bus has 42 passengers. At the first stop, 15 get off and 8 get on. How many passengers are on the bus now?",
+      "options": [
+        "35",
+        "33",
+        "49",
+        "29"
+      ],
+      "correctIndex": 0,
+      "memoryTrickTitle": "Doorway Counter Trick (බස් දොර ගණන් ක්‍රමය)",
+      "memoryTrickBody": "First find the net change at the door! 15 left and 8 entered means 7 fewer people overall (15 − 8 = 7). Then just take 42 − 7 = 35 in one tiny mental step!",
+      "explanation": "42 − 15 = 27, then 27 + 8 = 35 (or net −7: 42 − 7 = 35).",
+      "attributes": {
+        "intelligenceMeasure": 48,
+        "correctProbability": 0.72,
+        "wrongProbability": 0.28,
+        "examPriority": 8,
+        "quizStrength": 74,
+        "difficultyTier": "Moderate",
+        "cognitiveDomain": "Mathematics & Word Problems",
+        "estimatedSeconds": 40
+      },
+      "createdAt": "2026-01-10T08:05:00.000Z"
+    },
+    {
+      "id": "CUR-003",
+      "source": "curated",
+      "questionSi": "රූපයේ ඇති සමචතුරස්‍රයක එක් පැත්තක දිග 9 cm නම් එහි වටප්‍රමාණය (පරිමිතිය) කොපමණද?",
+      "questionEn": "If one side of a square is 9 cm, what is its perimeter?",
+      "options": [
+        "18 cm",
+        "27 cm",
+        "36 cm",
+        "81 cm"
+      ],
+      "correctIndex": 2,
+      "memoryTrickTitle": "4-Wall Fence Chant (හතර පැත්තේ වැට)",
+      "memoryTrickBody": "A square has 4 twin walls! Touch 4 fingers while saying \"9, 18, 27, 36!\" Never mix up Perimeter (4 walls added) with Area (floor tiles multiplied).",
+      "explanation": "Perimeter of a square = 4 × side = 4 × 9 = 36 cm.",
+      "attributes": {
+        "intelligenceMeasure": 30,
+        "correctProbability": 0.86,
+        "wrongProbability": 0.14,
+        "examPriority": 8,
+        "quizStrength": 62,
+        "difficultyTier": "Simple",
+        "cognitiveDomain": "Spatial & Geometric IQ",
+        "estimatedSeconds": 25
+      },
+      "createdAt": "2026-01-10T08:10:00.000Z"
+    },
+    {
+      "id": "CUR-004",
+      "source": "curated",
+      "questionSi": "පැය 2 ක් සහ මිනිත්තු 45 ක් යනු මුළු මිනිත්තු කීයක්ද?",
+      "questionEn": "How many total minutes are in 2 hours and 45 minutes?",
+      "options": [
+        "125 min",
+        "145 min",
+        "165 min",
+        "185 min"
+      ],
+      "correctIndex": 2,
+      "memoryTrickTitle": "Clock Pizza Slice Trick (ඔරලෝසු පීසා ක්‍රමය)",
+      "memoryTrickBody": "Each full hour is a 60-minute pizza! 2 pizzas = 60 + 60 = 120 minutes. Now add the extra 45 slices: 120 + 45 = 165!",
+      "explanation": "2 × 60 + 45 = 120 + 45 = 165 minutes.",
+      "attributes": {
+        "intelligenceMeasure": 42,
+        "correctProbability": 0.78,
+        "wrongProbability": 0.22,
+        "examPriority": 9,
+        "quizStrength": 70,
+        "difficultyTier": "Simple",
+        "cognitiveDomain": "Mathematics & Word Problems",
+        "estimatedSeconds": 30
+      },
+      "createdAt": "2026-01-10T08:15:00.000Z"
+    },
+    {
+      "id": "CUR-005",
+      "source": "curated",
+      "questionSi": "සීගිරිය පිහිටා ඇත්තේ ශ්‍රී ලංකාවේ කුමන දිස්ත්‍රික්කයේද?",
+      "questionEn": "In which district of Sri Lanka is Sigiriya Rock Fortress located?",
+      "options": [
+        "අනුරාධපුරය",
+        "මාතලේ",
+        "පොළොන්නරුව",
+        "මහනුවර"
+      ],
+      "correctIndex": 1,
+      "memoryTrickTitle": "Map Story Pin (සිතියම් කතා කටුව)",
+      "memoryTrickBody": "Remember \"M for Lion Mountain = Matale\"! Even though Sigiriya is near Dambulla/Anuradhapura roads, its district stamp is always මාතලේ (Matale).",
+      "explanation": "Sigiriya is located in the Matale District of Central Province, Sri Lanka.",
+      "attributes": {
+        "intelligenceMeasure": 58,
+        "correctProbability": 0.62,
+        "wrongProbability": 0.38,
+        "examPriority": 9,
+        "quizStrength": 81,
+        "difficultyTier": "Moderate",
+        "cognitiveDomain": "Environmental Studies (පරිසරය)",
+        "estimatedSeconds": 30
+      },
+      "createdAt": "2026-01-10T08:20:00.000Z"
+    },
+    {
+      "id": "CUR-006",
+      "source": "curated",
+      "questionSi": "“මහන්සියෙන් වැඩ කළ හෙයින් විභාගයෙන් සමත් විය.” මෙහි “හෙයින්” යන්න කුමන පද වර්ගයකට අයත්ද?",
+      "questionEn": "In Sinhala grammar, what part of speech is \"හෙයින්\" (because) in the sentence?",
+      "options": [
+        "නාම පදයකි",
+        "ක්‍රියා පදයකි",
+        "නිපාත පදයකි",
+        "විශේෂණ පදයකි"
+      ],
+      "correctIndex": 2,
+      "memoryTrickTitle": "Bridge Glue Word Trick (පාලම් මැලියම් වචන)",
+      "memoryTrickBody": "Words like හෙයින්, නිසා, සමඟ, නමුත් never change shape—they act like bridge glue connecting two ideas. Glue words are always නිපාත පද (Particles)!",
+      "explanation": "\"හෙයින්\" is an indeclinable connecting particle (නිපාත පදය).",
+      "attributes": {
+        "intelligenceMeasure": 76,
+        "correctProbability": 0.44,
+        "wrongProbability": 0.56,
+        "examPriority": 10,
+        "quizStrength": 88,
+        "difficultyTier": "Challenging",
+        "cognitiveDomain": "Sinhala Language & Proverbs",
+        "estimatedSeconds": 45
+      },
+      "createdAt": "2026-01-10T08:25:00.000Z"
+    },
+    {
+      "id": "CUR-007",
+      "source": "curated",
+      "questionSi": "පෝලිමක ඉදිරියෙන් 7 වන ස්ථානයේත්, පිටුපසින් 9 වන ස්ථානයේත් සිටින කවිඳු සිටින පෝලිමේ මුළු ළමුන් ගණන කීයද?",
+      "questionEn": "Kavindu is 7th from the front and 9th from the back in a queue. How many children are in the queue?",
+      "options": [
+        "16",
+        "15",
+        "17",
+        "14"
+      ],
+      "correctIndex": 1,
+      "memoryTrickTitle": "Double-Count Minus One (දෙපාරක් ගණන් කළා -1)",
+      "memoryTrickBody": "Imagine Kavindu raising BOTH hands! You counted him once from the front AND once from the back. Always add (7 + 9 = 16) and subtract 1 so you don’t clone Kavindu!",
+      "explanation": "Total = Front position + Back position − 1 = 7 + 9 − 1 = 15.",
+      "attributes": {
+        "intelligenceMeasure": 84,
+        "correctProbability": 0.36,
+        "wrongProbability": 0.64,
+        "examPriority": 10,
+        "quizStrength": 92,
+        "difficultyTier": "Master",
+        "cognitiveDomain": "Logical & Number Patterns",
+        "estimatedSeconds": 50
+      },
+      "createdAt": "2026-01-10T08:30:00.000Z"
+    },
+    {
+      "id": "CUR-008",
+      "source": "curated",
+      "questionSi": "Read carefully: \"The sun rises in the _____ and sets in the west.\"",
+      "questionEn": "Fill in the blank with the correct compass direction.",
+      "options": [
+        "North",
+        "South",
+        "East",
+        "Center"
+      ],
+      "correctIndex": 2,
+      "memoryTrickTitle": "NEWS Compass Spell",
+      "memoryTrickBody": "Remember \"E for Early morning = East\"! The sun wakes up Early in the East.",
+      "explanation": "The sun rises in the East.",
+      "attributes": {
+        "intelligenceMeasure": 24,
+        "correctProbability": 0.89,
+        "wrongProbability": 0.11,
+        "examPriority": 6,
+        "quizStrength": 54,
+        "difficultyTier": "Simple",
+        "cognitiveDomain": "English & Comprehension",
+        "estimatedSeconds": 20
+      },
+      "createdAt": "2026-01-10T08:35:00.000Z"
+    }
+  ],
+  "papers": [
+    {
+      "id": "PAPER-001",
+      "title": "Foundation Starter · Mock Paper 01",
+      "titleSi": "මූලික පෙරහුරු ප්‍රශ්න පත්‍රය 01",
+      "description": "Confidence-building starter paper covering core arithmetic, simple patterns, and English basics.",
+      "durationMinutes": 10,
+      "quizIds": [
+        "CUR-003",
+        "CUR-004",
+        "CUR-008",
+        "POOL-000001",
+        "POOL-000005",
+        "POOL-000009",
+        "POOL-000013",
+        "POOL-000017"
+      ],
+      "qualitySummary": {
+        "qualityIndex": 70,
+        "averageDifficulty": 41.3,
+        "averageIntelligence": 43.6,
+        "averagePriority": 6,
+        "averageStrength": 59.9,
+        "domainCoverageCount": 6,
+        "estimatedPassMark": 66,
+        "categoryLevel": "Balanced Standard",
+        "recommendation": "Well-balanced Grade 5 paper suitable for assessing progressive problem solving."
+      },
+      "createdBy": "admin@man5he.lk",
+      "createdAt": "2026-01-12T09:00:00.000Z",
+      "published": true
+    },
+    {
+      "id": "PAPER-002",
+      "title": "Balanced Standard · Mock Paper 02",
+      "titleSi": "සමතුලිත පෙරහුරු ප්‍රශ්න පත්‍රය 02",
+      "description": "Balanced Grade 5 Scholarship mock paper mirroring standard Part I & Part II weightage.",
+      "durationMinutes": 15,
+      "quizIds": [
+        "CUR-001",
+        "CUR-002",
+        "CUR-005",
+        "POOL-000002",
+        "POOL-000006",
+        "POOL-000010",
+        "POOL-000014",
+        "POOL-000018",
+        "POOL-000022",
+        "POOL-000026"
+      ],
+      "qualitySummary": {
+        "qualityIndex": 80,
+        "averageDifficulty": 62.7,
+        "averageIntelligence": 67.2,
+        "averagePriority": 8.2,
+        "averageStrength": 77.9,
+        "domainCoverageCount": 5,
+        "estimatedPassMark": 58,
+        "categoryLevel": "Advanced Challenging",
+        "recommendation": "Well-balanced Grade 5 paper suitable for assessing progressive problem solving."
+      },
+      "createdBy": "admin@man5he.lk",
+      "createdAt": "2026-01-14T09:00:00.000Z",
+      "published": true
+    },
+    {
+      "id": "PAPER-003",
+      "title": "Advanced Challenging · Mock Paper 03",
+      "titleSi": "උසස් අභියෝගාත්මක ප්‍රශ්න පත්‍රය 03",
+      "description": "Challenging reasoning, Sinhala grammar particles, and multi-step word problems.",
+      "durationMinutes": 18,
+      "quizIds": [
+        "CUR-005",
+        "CUR-006",
+        "POOL-000003",
+        "POOL-000007",
+        "POOL-000011",
+        "POOL-000015",
+        "POOL-000019",
+        "POOL-000023",
+        "POOL-000027",
+        "POOL-000031"
+      ],
+      "qualitySummary": {
+        "qualityIndex": 80,
+        "averageDifficulty": 79.8,
+        "averageIntelligence": 87.1,
+        "averagePriority": 9.1,
+        "averageStrength": 91.1,
+        "domainCoverageCount": 3,
+        "estimatedPassMark": 52,
+        "categoryLevel": "Scholarship Master",
+        "recommendation": "High-discrimination Merit-level paper designed to separate Island Rank contenders."
+      },
+      "createdBy": "admin@man5he.lk",
+      "createdAt": "2026-01-16T09:00:00.000Z",
+      "published": true
+    },
+    {
+      "id": "PAPER-004",
+      "title": "Scholarship Master · Island Rank Paper 04",
+      "titleSi": "ශිෂ්‍යත්ව විශිෂ්ට ප්‍රශ්න පත්‍රය 04",
+      "description": "High-discrimination Merit-level paper calibrated for top Island Rank contenders.",
+      "durationMinutes": 20,
+      "quizIds": [
+        "CUR-006",
+        "CUR-007",
+        "POOL-000004",
+        "POOL-000008",
+        "POOL-000012",
+        "POOL-000016",
+        "POOL-000020",
+        "POOL-000024",
+        "POOL-000028",
+        "POOL-000032",
+        "POOL-000036",
+        "POOL-000040"
+      ],
+      "qualitySummary": {
+        "qualityIndex": 64,
+        "averageDifficulty": 33.1,
+        "averageIntelligence": 33.6,
+        "averagePriority": 5,
+        "averageStrength": 46.9,
+        "domainCoverageCount": 5,
+        "estimatedPassMark": 69,
+        "categoryLevel": "Foundation Simple",
+        "recommendation": "Confidence-building foundational paper ideal for students mastering core pattern recognition."
+      },
+      "createdBy": "admin@man5he.lk",
+      "createdAt": "2026-01-18T09:00:00.000Z",
+      "published": true
+    }
+  ],
+  "attempts": [
+    {
+      "id": "ATT-CBBF8A8B",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 0,
+      "scorePercent": 0,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 1,
+      "starsEarned": 2,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-18T13:46:11.293Z"
+    },
+    {
+      "id": "ATT-FA93B854",
+      "userId": "usr-student-1",
+      "paperId": "PRACTICE-500K",
+      "paperTitle": "500K+ Shuffled Practice Round",
+      "mode": "practice",
+      "paperCategory": "Foundation Simple",
+      "totalQuestions": 8,
+      "correctCount": 2,
+      "scorePercent": 25,
+      "timeLimitSeconds": 0,
+      "timeSpentSeconds": 15,
+      "starsEarned": 6,
+      "domainBreakdown": {
+        "Logical & Number Patterns": {
+          "correct": 1,
+          "total": 1
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 2
+        },
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 1,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-18T13:46:10.929Z"
+    },
+    {
+      "id": "ATT-0536E5E8",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 0,
+      "scorePercent": 0,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 1,
+      "starsEarned": 2,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-18T13:44:39.040Z"
+    },
+    {
+      "id": "ATT-C526633C",
+      "userId": "usr-student-1",
+      "paperId": "PRACTICE-500K",
+      "paperTitle": "500K+ Shuffled Practice Round",
+      "mode": "practice",
+      "paperCategory": "Foundation Simple",
+      "totalQuestions": 8,
+      "correctCount": 3,
+      "scorePercent": 38,
+      "timeLimitSeconds": 0,
+      "timeSpentSeconds": 15,
+      "starsEarned": 9,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 2
+        },
+        "Mathematics & Word Problems": {
+          "correct": 1,
+          "total": 2
+        },
+        "Logical & Number Patterns": {
+          "correct": 2,
+          "total": 2
+        }
+      },
+      "submittedAt": "2026-11-18T13:44:38.543Z"
+    },
+    {
+      "id": "ATT-C9C3ACDB",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 0,
+      "scorePercent": 0,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 1,
+      "starsEarned": 2,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-18T13:43:21.594Z"
+    },
+    {
+      "id": "ATT-72D721B1",
+      "userId": "usr-student-1",
+      "paperId": "PRACTICE-500K",
+      "paperTitle": "500K+ Shuffled Practice Round",
+      "mode": "practice",
+      "paperCategory": "Foundation Simple",
+      "totalQuestions": 8,
+      "correctCount": 2,
+      "scorePercent": 25,
+      "timeLimitSeconds": 0,
+      "timeSpentSeconds": 15,
+      "starsEarned": 6,
+      "domainBreakdown": {
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 1
+        },
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 2
+        },
+        "Logical & Number Patterns": {
+          "correct": 2,
+          "total": 2
+        }
+      },
+      "submittedAt": "2026-11-18T13:43:21.000Z"
+    },
+    {
+      "id": "ATT-E459AB24",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 0,
+      "scorePercent": 0,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 1,
+      "starsEarned": 2,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-18T13:42:05.387Z"
+    },
+    {
+      "id": "ATT-2E9DDA75",
+      "userId": "usr-student-1",
+      "paperId": "PRACTICE-500K",
+      "paperTitle": "500K+ Shuffled Practice Round",
+      "mode": "practice",
+      "paperCategory": "Foundation Simple",
+      "totalQuestions": 8,
+      "correctCount": 3,
+      "scorePercent": 38,
+      "timeLimitSeconds": 0,
+      "timeSpentSeconds": 15,
+      "starsEarned": 9,
+      "domainBreakdown": {
+        "Mathematics & Word Problems": {
+          "correct": 2,
+          "total": 2
+        },
+        "Spatial & Geometric IQ": {
+          "correct": 1,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-18T13:42:04.795Z"
+    },
+    {
+      "id": "ATT-FBBB0656",
+      "userId": "usr-student-1",
+      "paperId": "PRACTICE-500K",
+      "paperTitle": "500K+ Shuffled Practice Round",
+      "mode": "practice",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 1,
+      "scorePercent": 13,
+      "timeLimitSeconds": 0,
+      "timeSpentSeconds": 15,
+      "starsEarned": 3,
+      "domainBreakdown": {
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 1,
+          "total": 1
+        },
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 2
+        }
+      },
+      "submittedAt": "2026-11-17T06:16:15.859Z"
+    },
+    {
+      "id": "ATT-F905D699",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 1,
+      "scorePercent": 13,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 1,
+      "starsEarned": 6,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 1,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-16T21:16:00.552Z"
+    },
+    {
+      "id": "ATT-D2C0F1F7",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 8,
+      "correctCount": 0,
+      "scorePercent": 0,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 1,
+      "starsEarned": 2,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 0,
+          "total": 1
+        },
+        "Mathematics & Word Problems": {
+          "correct": 0,
+          "total": 1
+        },
+        "English & Comprehension": {
+          "correct": 0,
+          "total": 1
+        },
+        "Logical & Number Patterns": {
+          "correct": 0,
+          "total": 2
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 0,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 0,
+          "total": 1
+        }
+      },
+      "submittedAt": "2026-11-16T21:14:49.657Z"
+    },
+    {
+      "id": "ATT-1005",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-002",
+      "paperTitle": "Balanced Standard · Mock Paper 02",
+      "mode": "timed_exam",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 10,
+      "correctCount": 8,
+      "scorePercent": 80,
+      "timeLimitSeconds": 900,
+      "timeSpentSeconds": 710,
+      "starsEarned": 28,
+      "domainBreakdown": {
+        "Logical & Number Patterns": {
+          "correct": 3,
+          "total": 3
+        },
+        "Mathematics & Word Problems": {
+          "correct": 2,
+          "total": 3
+        },
+        "Environmental Studies (පරිසරය)": {
+          "correct": 2,
+          "total": 2
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 1,
+          "total": 2
+        }
+      },
+      "submittedAt": "2026-11-15T14:20:00.000Z"
+    },
+    {
+      "id": "ATT-1004",
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "paperTitle": "Foundation Starter · Mock Paper 01",
+      "mode": "timed_exam",
+      "paperCategory": "Foundation Simple",
+      "totalQuestions": 8,
+      "correctCount": 7,
+      "scorePercent": 88,
+      "timeLimitSeconds": 600,
+      "timeSpentSeconds": 480,
+      "starsEarned": 24,
+      "domainBreakdown": {
+        "Spatial & Geometric IQ": {
+          "correct": 2,
+          "total": 2
+        },
+        "Mathematics & Word Problems": {
+          "correct": 3,
+          "total": 3
+        },
+        "English & Comprehension": {
+          "correct": 2,
+          "total": 3
+        }
+      },
+      "submittedAt": "2026-11-13T16:10:00.000Z"
+    },
+    {
+      "id": "ATT-1003",
+      "userId": "usr-student-1",
+      "paperId": "PRACTICE-500K",
+      "paperTitle": "Shuffled 500K Practice · Patterns & Memory",
+      "mode": "practice",
+      "paperCategory": "Balanced Standard",
+      "totalQuestions": 10,
+      "correctCount": 7,
+      "scorePercent": 70,
+      "timeLimitSeconds": 0,
+      "timeSpentSeconds": 540,
+      "starsEarned": 20,
+      "domainBreakdown": {
+        "Logical & Number Patterns": {
+          "correct": 4,
+          "total": 5
+        },
+        "Sinhala Language & Proverbs": {
+          "correct": 3,
+          "total": 5
+        }
+      },
+      "submittedAt": "2026-11-11T10:30:00.000Z"
+    }
+  ],
+  "paymentPlans": [
+    {
+      "id": "plan-monthly",
+      "name": "Monthly Scholar Pass",
+      "nameSi": "මාසික ශිෂ්‍යත්ව පැකේජය",
+      "audience": "For short-term revision & weekly timed mocks",
+      "priceLkr": 1500,
+      "durationDays": 30,
+      "features": [
+        "500,000+ shuffled bilingual quiz practice rounds",
+        "Child psychological memory tricks on every question",
+        "Weekly timed mock papers & instant scoring",
+        "Automated Email & WhatsApp parent progress alerts"
+      ]
+    },
+    {
+      "id": "plan-term",
+      "name": "Term Champion Pack",
+      "nameSi": "වාර විභාග ජයග්‍රාහී පැකේජය",
+      "audience": "For full-term preparation & level progression",
+      "priceLkr": 3900,
+      "durationDays": 90,
+      "recommended": true,
+      "features": [
+        "Everything in Monthly Scholar Pass for 90 days",
+        "Adaptive level unlocks: Foundation to Scholarship Master",
+        "Scholarship Estimator & weak-domain improvement tracker",
+        "Signed LKR payment invoices & parent sharing reports"
+      ]
+    },
+    {
+      "id": "plan-annual",
+      "name": "Annual Island Rank Master",
+      "nameSi": "වාර්ෂික විශිෂ්ට ශිෂ්‍යත්ව පැකේජය",
+      "audience": "For complete Grade 5 Scholarship year mastery",
+      "priceLkr": 9500,
+      "durationDays": 365,
+      "features": [
+        "Full 365-day unlimited access to 500,000+ quizzes",
+        "All Island Rank timed exam series & psychometric insights",
+        "Priority WhatsApp & HTML email diagnostic reports",
+        "Google Authenticator + Email OTP family account security"
+      ]
+    }
+  ],
+  "invoices": [
+    {
+      "id": "inv-07a20841",
+      "invoiceNumber": "INV-M5-920382",
+      "userId": "usr-student-1",
+      "userName": "Sayuri Perera",
+      "userEmail": "sayuri@man5he.lk",
+      "planId": "plan-term",
+      "planName": "Term Champion Pack",
+      "amountLkr": 3900,
+      "gateway": "PayHere LKR",
+      "gatewayRef": "GW-BB80111A",
+      "signatureVerified": true,
+      "status": "paid",
+      "createdAt": "2026-11-17T04:20:40.449Z"
+    },
+    {
+      "id": "inv-seed-1",
+      "invoiceNumber": "INV-M5-202601",
+      "userId": "usr-student-1",
+      "userName": "Sayuri Perera",
+      "userEmail": "sayuri@man5he.lk",
+      "planId": "plan-annual",
+      "planName": "Annual Island Rank Master",
+      "amountLkr": 9500,
+      "gateway": "PayHere LKR",
+      "gatewayRef": "PH-LK-98432101",
+      "signatureVerified": true,
+      "status": "paid",
+      "createdAt": "2026-11-01T09:15:00.000Z"
+    }
+  ],
+  "emailLogs": [
+    {
+      "id": "EML-94F06B27",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Exam Progress Report: Foundation Starter · Mock Paper 01 (0%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">19%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 1 sec · <strong>Stars Earned:</strong> +2 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 10% accuracy</li><li><strong>English & Comprehension</strong>: 17% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 20% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:46:11.296Z"
+    },
+    {
+      "id": "EML-107C38C0",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Mock Paper Started: Foundation Starter · Mock Paper 01 (10 min) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01 (Started)</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01 (Started)</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">23%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 0 sec · <strong>Stars Earned:</strong> +0 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 11% accuracy</li><li><strong>English & Comprehension</strong>: 18% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 21% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:46:11.121Z"
+    },
+    {
+      "id": "EML-6043C7A1",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Practice Progress Report: 500K+ Shuffled Practice Round (25%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · 500K+ Shuffled Practice Round</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Foundation Simple)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>500K+ Shuffled Practice Round</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">25%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">23%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 15 sec · <strong>Stars Earned:</strong> +6 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 11% accuracy</li><li><strong>English & Comprehension</strong>: 18% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 21% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:46:10.931Z"
+    },
+    {
+      "id": "EML-FA32F111",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Exam Progress Report: Foundation Starter · Mock Paper 01 (0%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">19%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 1 sec · <strong>Stars Earned:</strong> +2 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 12% accuracy</li><li><strong>English & Comprehension</strong>: 22% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 22% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:44:39.045Z"
+    },
+    {
+      "id": "EML-8EBE7DB9",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Mock Paper Started: Foundation Starter · Mock Paper 01 (10 min) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01 (Started)</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01 (Started)</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">25%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 0 sec · <strong>Stars Earned:</strong> +0 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 13% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 24% accuracy</li><li><strong>English & Comprehension</strong>: 25% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:44:38.843Z"
+    },
+    {
+      "id": "EML-9FAE4F7A",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Practice Progress Report: 500K+ Shuffled Practice Round (38%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · 500K+ Shuffled Practice Round</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Foundation Simple)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>500K+ Shuffled Practice Round</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">38%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">25%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 15 sec · <strong>Stars Earned:</strong> +9 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 13% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 24% accuracy</li><li><strong>English & Comprehension</strong>: 25% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:44:38.547Z"
+    },
+    {
+      "id": "EML-6215E311",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Exam Progress Report: Foundation Starter · Mock Paper 01 (0%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">21%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 1 sec · <strong>Stars Earned:</strong> +2 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 13% accuracy</li><li><strong>English & Comprehension</strong>: 25% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 27% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:43:21.600Z"
+    },
+    {
+      "id": "EML-E9AD6517",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Mock Paper Started: Foundation Starter · Mock Paper 01 (10 min) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01 (Started)</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01 (Started)</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">24%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 0 sec · <strong>Stars Earned:</strong> +0 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 15% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 29% accuracy</li><li><strong>English & Comprehension</strong>: 29% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:43:21.347Z"
+    },
+    {
+      "id": "EML-5F97D49E",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Practice Progress Report: 500K+ Shuffled Practice Round (25%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · 500K+ Shuffled Practice Round</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Foundation Simple)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>500K+ Shuffled Practice Round</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">25%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">24%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 15 sec · <strong>Stars Earned:</strong> +6 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 15% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 29% accuracy</li><li><strong>English & Comprehension</strong>: 29% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:43:21.005Z"
+    },
+    {
+      "id": "EML-5711B8CC",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Exam Progress Report: Foundation Starter · Mock Paper 01 (0%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">20%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 1 sec · <strong>Stars Earned:</strong> +2 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 17% accuracy</li><li><strong>English & Comprehension</strong>: 29% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 33% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:42:05.389Z"
+    },
+    {
+      "id": "EML-C8B66E1D",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Mock Paper Started: Foundation Starter · Mock Paper 01 (10 min) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01 (Started)</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01 (Started)</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">34%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 0 sec · <strong>Stars Earned:</strong> +0 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 20% accuracy</li><li><strong>English & Comprehension</strong>: 33% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 36% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:42:05.074Z"
+    },
+    {
+      "id": "EML-F622BEFC",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Practice Progress Report: 500K+ Shuffled Practice Round (38%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · 500K+ Shuffled Practice Round</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Foundation Simple)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>500K+ Shuffled Practice Round</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">38%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">34%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Foundation Simple</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 15 sec · <strong>Stars Earned:</strong> +9 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 20% accuracy</li><li><strong>English & Comprehension</strong>: 33% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 36% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-18T13:42:04.799Z"
+    },
+    {
+      "id": "EML-6A8F1405",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Official Receipt & Invoice INV-M5-920382 · මං 5හේ",
+      "category": "invoice",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#4CAF50;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Payment Receipt & Invoice INV-M5-920382</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Subscription confirmed for Sayuri Perera</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Thank you for investing in your child's Grade 5 Scholarship journey. Your payment has been cryptographically verified.</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"8\" style=\"border-collapse:collapse;margin:16px 0;background:#F9FCFF;border:1px solid #DCEBFA;border-radius:10px;\">\n        <tr style=\"background:#EBF5FF;font-weight:700;color:#0F2942;\">\n          <td align=\"left\">Invoice Detail</td>\n          <td align=\"right\">Value</td>\n        </tr>\n        <tr><td>Invoice Number</td><td align=\"right\" style=\"font-family:monospace;font-weight:700;\">INV-M5-920382</td></tr>\n        <tr><td>Plan</td><td align=\"right\">Term Champion Pack</td></tr>\n        <tr><td>Payment Gateway</td><td align=\"right\">PayHere LKR</td></tr>\n        <tr><td>Gateway Reference</td><td align=\"right\" style=\"font-family:monospace;\">GW-BB80111A</td></tr>\n        <tr><td>Signature Status</td><td align=\"right\" style=\"color:#2E7D32;font-weight:700;\">HMAC-SHA256 Verified</td></tr>\n        <tr style=\"border-top:2px solid #DCEBFA;font-size:16px;font-weight:800;\">\n          <td>Total Paid</td>\n          <td align=\"right\" style=\"color:#F96A1B;\">LKR 3,900.00</td>\n        </tr>\n      </table>\n      <p style=\"margin-bottom:0;\">Full access to the 500,000+ shuffled quiz bank, child psychological memory tricks, and timed scholarship papers is now unlocked.</p>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-17T04:20:40.493Z"
+    },
+    {
+      "id": "EML-60D25142",
+      "toEmail": "admin@man5he.lk",
+      "subject": "Login Security Code (963877) · මං 5හේ",
+      "category": "otp_login",
+      "otpCode": "963877",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#158EE3;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Secure Login Verification Code</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">ආයුබෝවන් Kavinda Wickramasinghe, verify your action on මං 5හේ</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Use the 6-digit security verification code below to authorize <strong>Secure Login</strong> for student/parent account <strong>M5-ADMIN-01</strong>:</p>\n      <div style=\"margin:20px 0;padding:18px;border-radius:14px;background:#F3F9FF;border:2px dashed #158EE3;text-align:center;\">\n        <div style=\"font-size:12px;color:#526A84;margin-bottom:6px;\">One-Time Email Verification Code (Expires in 10 minutes)</div>\n        <div style=\"font-size:32px;font-weight:800;letter-spacing:8px;font-family:monospace;color:#0F2942;\">963877</div>\n      </div>\n      <p style=\"margin-bottom:0;color:#526A84;\">If you did not initiate this request, please secure your Google Authenticator and password immediately.</p>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-16T21:16:05.885Z"
+    },
+    {
+      "id": "EML-A0A8F082",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Exam Progress Report: Foundation Starter · Mock Paper 01 (13%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">13%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">52%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Balanced Standard</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 1 sec · <strong>Stars Earned:</strong> +6 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Environmental Studies (පරිසරය)</strong>: 33% accuracy</li><li><strong>English & Comprehension</strong>: 40% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 44% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-16T21:16:00.553Z"
+    },
+    {
+      "id": "EML-68237B92",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Login Security Code (294941) · මං 5හේ",
+      "category": "otp_login",
+      "otpCode": "294941",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#158EE3;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Secure Login Verification Code</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">ආයුබෝවන් Sayuri Perera, verify your action on මං 5හේ</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Use the 6-digit security verification code below to authorize <strong>Secure Login</strong> for student/parent account <strong>M5-2026-001</strong>:</p>\n      <div style=\"margin:20px 0;padding:18px;border-radius:14px;background:#F3F9FF;border:2px dashed #158EE3;text-align:center;\">\n        <div style=\"font-size:12px;color:#526A84;margin-bottom:6px;\">One-Time Email Verification Code (Expires in 10 minutes)</div>\n        <div style=\"font-size:32px;font-weight:800;letter-spacing:8px;font-family:monospace;color:#0F2942;\">294941</div>\n      </div>\n      <p style=\"margin-bottom:0;color:#526A84;\">If you did not initiate this request, please secure your Google Authenticator and password immediately.</p>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-16T21:15:59.689Z"
+    },
+    {
+      "id": "EML-6EE0DE64",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Exam Progress Report: Foundation Starter · Mock Paper 01 (0%) · මං 5හේ",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Foundation Starter · Mock Paper 01</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Foundation Starter · Mock Paper 01</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">0%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">60%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Balanced Standard</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 0 min 1 sec · <strong>Stars Earned:</strong> +2 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>English & Comprehension</strong>: 50% accuracy</li><li><strong>Environmental Studies (පරිසරය)</strong>: 50% accuracy</li><li><strong>Sinhala Language & Proverbs</strong>: 50% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Steady progress! Continue daily 15-minute shuffled practice rounds with memory tricks.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-16T21:14:49.658Z"
+    },
+    {
+      "id": "EML-D5493B52",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Login Security Code (498305) · මං 5හේ",
+      "category": "otp_login",
+      "otpCode": "498305",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#158EE3;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Secure Login Verification Code</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">ආයුබෝවන් Sayuri Perera, verify your action on මං 5හේ</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Use the 6-digit security verification code below to authorize <strong>Secure Login</strong> for student/parent account <strong>M5-2026-001</strong>:</p>\n      <div style=\"margin:20px 0;padding:18px;border-radius:14px;background:#F3F9FF;border:2px dashed #158EE3;text-align:center;\">\n        <div style=\"font-size:12px;color:#526A84;margin-bottom:6px;\">One-Time Email Verification Code (Expires in 10 minutes)</div>\n        <div style=\"font-size:32px;font-weight:800;letter-spacing:8px;font-family:monospace;color:#0F2942;\">498305</div>\n      </div>\n      <p style=\"margin-bottom:0;color:#526A84;\">If you did not initiate this request, please secure your Google Authenticator and password immediately.</p>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-16T21:14:42.749Z"
+    },
+    {
+      "id": "EML-5A2EA999",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Login Security Code (169764) · මං 5හේ",
+      "category": "otp_login",
+      "otpCode": "169764",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#158EE3;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Secure Login Verification Code</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">ආයුබෝවන් Sayuri Perera, verify your action on මං 5හේ</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Use the 6-digit security verification code below to authorize <strong>Secure Login</strong> for student/parent account <strong>M5-2026-001</strong>:</p>\n      <div style=\"margin:20px 0;padding:18px;border-radius:14px;background:#F3F9FF;border:2px dashed #158EE3;text-align:center;\">\n        <div style=\"font-size:12px;color:#526A84;margin-bottom:6px;\">One-Time Email Verification Code (Expires in 10 minutes)</div>\n        <div style=\"font-size:32px;font-weight:800;letter-spacing:8px;font-family:monospace;color:#0F2942;\">169764</div>\n      </div>\n      <p style=\"margin-bottom:0;color:#526A84;\">If you did not initiate this request, please secure your Google Authenticator and password immediately.</p>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-16T21:14:28.201Z"
+    },
+    {
+      "id": "EML-SEED-1",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Official Receipt & Invoice INV-M5-202601 · මං 5හේ",
+      "category": "invoice",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#4CAF50;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Payment Receipt & Invoice INV-M5-202601</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Subscription confirmed for Sayuri Perera</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Thank you for investing in your child's Grade 5 Scholarship journey. Your payment has been cryptographically verified.</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"8\" style=\"border-collapse:collapse;margin:16px 0;background:#F9FCFF;border:1px solid #DCEBFA;border-radius:10px;\">\n        <tr style=\"background:#EBF5FF;font-weight:700;color:#0F2942;\">\n          <td align=\"left\">Invoice Detail</td>\n          <td align=\"right\">Value</td>\n        </tr>\n        <tr><td>Invoice Number</td><td align=\"right\" style=\"font-family:monospace;font-weight:700;\">INV-M5-202601</td></tr>\n        <tr><td>Plan</td><td align=\"right\">Annual Island Rank Master</td></tr>\n        <tr><td>Payment Gateway</td><td align=\"right\">PayHere LKR</td></tr>\n        <tr><td>Gateway Reference</td><td align=\"right\" style=\"font-family:monospace;\">PH-LK-98432101</td></tr>\n        <tr><td>Signature Status</td><td align=\"right\" style=\"color:#2E7D32;font-weight:700;\">HMAC-SHA256 Verified</td></tr>\n        <tr style=\"border-top:2px solid #DCEBFA;font-size:16px;font-weight:800;\">\n          <td>Total Paid</td>\n          <td align=\"right\" style=\"color:#F96A1B;\">LKR 9,500.00</td>\n        </tr>\n      </table>\n      <p style=\"margin-bottom:0;\">Full access to the 500,000+ shuffled quiz bank, child psychological memory tricks, and timed scholarship papers is now unlocked.</p>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-01T09:15:05.000Z"
+    },
+    {
+      "id": "EML-SEED-2",
+      "toEmail": "sayuri@man5he.lk",
+      "subject": "Progress Report: Balanced Standard · Mock Paper 02 (80%)",
+      "category": "progress_report",
+      "htmlBody": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n</head>\n<body style=\"margin:0;padding:24px;background-color:#EAF5FF;font-family:'Plus Jakarta Sans','DM Sans',Arial,sans-serif;color:#0F2942;\">\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:20px;border:1px solid #D5E8FA;overflow:hidden;\">\n    <tr>\n      <td style=\"padding:24px 28px;background:linear-gradient(135deg,#DCEEFF 0%,#F3F9FF 100%);border-bottom:1px solid #D5E8FA;\">\n        <table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td>\n              <div style=\"font-size:24px;font-weight:800;letter-spacing:-0.5px;\">\n                <span style=\"color:#F9631B;\">ම</span><span style=\"color:#F5A623;\">ං</span>\n                <span style=\"color:#1170D1;\"> 5</span><span style=\"color:#128BE3;\">හේ</span>\n              </div>\n              <div style=\"font-size:12px;color:#476481;margin-top:2px;\">Sri Lanka Grade 5 Scholarship Academy</div>\n            </td>\n            <td align=\"right\">\n              <span style=\"display:inline-block;padding:6px 12px;border-radius:8px;background:#F5A623;color:#FFFFFF;font-size:12px;font-weight:700;\">\n                Official Verification\n              </span>\n            </td>\n          </tr>\n        </table>\n        <h1 style=\"margin:18px 0 4px 0;font-size:22px;line-height:1.3;color:#0F2942;\">Student Progress Report · Balanced Standard · Mock Paper 02</h1>\n        <p style=\"margin:0;font-size:14px;color:#476481;\">Parent Tracker Update for Sayuri Perera (Balanced Standard)</p>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:26px 28px;font-size:14px;line-height:1.6;color:#233B53;\">\n        \n      <p style=\"margin-top:0;\">Here is the automated learning & scholarship readiness summary after completing <strong>Balanced Standard · Mock Paper 02</strong>:</p>\n      <table width=\"100%\" cellspacing=\"0\" cellpadding=\"10\" style=\"margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;\">\n        <tr>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Score</div>\n            <div style=\"font-size:22px;font-weight:800;color:#158EE3;\">80%</div>\n          </td>\n          <td width=\"33%\" align=\"center\" style=\"border-right:1px solid #DCEBFA;\">\n            <div style=\"font-size:11px;color:#526A84;\">Scholarship Estimator</div>\n            <div style=\"font-size:22px;font-weight:800;color:#4CAF50;\">81%</div>\n          </td>\n          <td width=\"33%\" align=\"center\">\n            <div style=\"font-size:11px;color:#526A84;\">Recommended Level</div>\n            <div style=\"font-size:14px;font-weight:700;color:#F96A1B;\">Advanced Challenging</div>\n          </td>\n        </tr>\n      </table>\n      <p><strong>Time Spent:</strong> 12 min 50 sec · <strong>Stars Earned:</strong> +28 Stars</p>\n      <p style=\"margin-bottom:6px;\"><strong>Areas to Improve (වැඩිදියුණු විය යුතු කොටස්):</strong></p>\n      <ul style=\"margin-top:0;padding-left:18px;\"><li><strong>Sinhala Language & Proverbs</strong>: 57% accuracy</li><li><strong>English & Comprehension</strong>: 67% accuracy</li></ul>\n      <div style=\"padding:12px 14px;background:#FFF7EB;border:1px solid #FDE1B2;border-radius:10px;color:#7C4D00;\">\n        <strong>Psychometric Insight:</strong> Excellent mastery (84% recent average). Ready to advance to Advanced Challenging papers.\n      </div>\n    \n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:18px 28px;background:#F7FBFF;border-top:1px solid #E5F0FA;font-size:12px;color:#5A748E;\">\n        <div>මං 5හේ (Man 5he) Scholarship Platform · Automated Security & Parent Progress Desk</div>\n        <div style=\"margin-top:4px;\">Protected by Email OTP, Google Authenticator TOTP & Signed Gateway Receipts</div>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+      "sentAt": "2026-11-15T14:21:00.000Z"
+    }
+  ],
+  "whatsappLogs": [
+    {
+      "id": "WA-F2A58BD5",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Foundation Starter · Mock Paper 01 (Timed Exam)\nScore: 0/8 (0%) | +2 Stars\nScholarship Readiness: 19%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (10%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:46:11.300Z"
+    },
+    {
+      "id": "WA-57B0EBDF",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "📝 *මං 5හේ Mock Paper Alert*\nStudent: Sayuri Perera\nStarted Timed Mock Paper: Foundation Starter · Mock Paper 01\nQuestions: 8 · Time Limit: 10 min\nFull score & fallback review report will follow on submission.",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:46:11.122Z"
+    },
+    {
+      "id": "WA-B67F7B1D",
+      "toNumber": "+94771234567",
+      "category": "milestone",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: 500K+ Shuffled Practice Round (Practice Round)\nScore: 2/8 (25%) | +6 Stars\nScholarship Readiness: 23%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (11%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:46:10.932Z"
+    },
+    {
+      "id": "WA-AD0A9B95",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Foundation Starter · Mock Paper 01 (Timed Exam)\nScore: 0/8 (0%) | +2 Stars\nScholarship Readiness: 19%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (12%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:44:39.049Z"
+    },
+    {
+      "id": "WA-8DD8A6CD",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "📝 *මං 5හේ Mock Paper Alert*\nStudent: Sayuri Perera\nStarted Timed Mock Paper: Foundation Starter · Mock Paper 01\nQuestions: 8 · Time Limit: 10 min\nFull score & fallback review report will follow on submission.",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:44:38.844Z"
+    },
+    {
+      "id": "WA-6A39F653",
+      "toNumber": "+94771234567",
+      "category": "milestone",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: 500K+ Shuffled Practice Round (Practice Round)\nScore: 3/8 (38%) | +9 Stars\nScholarship Readiness: 25%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (13%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:44:38.549Z"
+    },
+    {
+      "id": "WA-08969AF5",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Foundation Starter · Mock Paper 01 (Timed Exam)\nScore: 0/8 (0%) | +2 Stars\nScholarship Readiness: 21%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (13%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:43:21.602Z"
+    },
+    {
+      "id": "WA-9575ACEB",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "📝 *මං 5හේ Mock Paper Alert*\nStudent: Sayuri Perera\nStarted Timed Mock Paper: Foundation Starter · Mock Paper 01\nQuestions: 8 · Time Limit: 10 min\nFull score & fallback review report will follow on submission.",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:43:21.350Z"
+    },
+    {
+      "id": "WA-93182F71",
+      "toNumber": "+94771234567",
+      "category": "milestone",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: 500K+ Shuffled Practice Round (Practice Round)\nScore: 2/8 (25%) | +6 Stars\nScholarship Readiness: 24%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (15%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:43:21.007Z"
+    },
+    {
+      "id": "WA-5C2C6AEF",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Foundation Starter · Mock Paper 01 (Timed Exam)\nScore: 0/8 (0%) | +2 Stars\nScholarship Readiness: 20%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (17%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:42:05.391Z"
+    },
+    {
+      "id": "WA-7EC6D18E",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "📝 *මං 5හේ Mock Paper Alert*\nStudent: Sayuri Perera\nStarted Timed Mock Paper: Foundation Starter · Mock Paper 01\nQuestions: 8 · Time Limit: 10 min\nFull score & fallback review report will follow on submission.",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:42:05.075Z"
+    },
+    {
+      "id": "WA-3E8663B8",
+      "toNumber": "+94771234567",
+      "category": "milestone",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: 500K+ Shuffled Practice Round (Practice Round)\nScore: 3/8 (38%) | +9 Stars\nScholarship Readiness: 34%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (20%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-18T13:42:04.800Z"
+    },
+    {
+      "id": "WA-85A2B244",
+      "toNumber": "+94771234567",
+      "category": "milestone",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: 500K+ Shuffled Practice Round (Practice Round)\nScore: 1/8 (13%) | +3 Stars\nScholarship Readiness: 42%\nNext Level: Foundation Simple\nFocus Area: Environmental Studies (පරිසරය) (25%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-17T06:16:15.861Z"
+    },
+    {
+      "id": "WA-56DB3ECF",
+      "toNumber": "+94771234567",
+      "category": "payment",
+      "messageText": "✅ මං 5හේ Payment Confirmed!\nInvoice: INV-M5-920382\nPlan: Term Champion Pack\nAmount: LKR 3,900\nFull 500,000+ quiz bank & timed scholarship papers unlocked!",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-17T04:20:40.495Z"
+    },
+    {
+      "id": "WA-9DBDC0C8",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Foundation Starter · Mock Paper 01 (Timed Exam)\nScore: 1/8 (13%) | +6 Stars\nScholarship Readiness: 52%\nNext Level: Balanced Standard\nFocus Area: Environmental Studies (පරිසරය) (33%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-16T21:16:00.554Z"
+    },
+    {
+      "id": "WA-58877A91",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Foundation Starter · Mock Paper 01 (Timed Exam)\nScore: 0/8 (0%) | +2 Stars\nScholarship Readiness: 60%\nNext Level: Balanced Standard\nFocus Area: English & Comprehension (50%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-16T21:14:49.659Z"
+    },
+    {
+      "id": "WA-SEED-1",
+      "toNumber": "+94771234567",
+      "category": "exam_report",
+      "messageText": "🌟 *මං 5හේ (Man 5he) Parent Progress Alert*\nStudent: Sayuri Perera\nCompleted: Balanced Standard · Mock Paper 02 (Timed Exam)\nScore: 8/10 (80%) | +28 Stars\nScholarship Readiness: 81%\nNext Level: Advanced Challenging\nFocus Area: Sinhala Language & Proverbs (57%)",
+      "deliveryStatus": "delivered",
+      "sentAt": "2026-11-15T14:21:05.000Z"
+    }
+  ],
+  "activeExamSessions": {
+    "EXM-1BF6F02079D7": {
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "startedAtMs": 1794917826415,
+      "timeLimitSeconds": 600
+    },
+    "EXM-841C1B967B3F": {
+      "userId": "usr-student-1",
+      "paperId": "PAPER-001",
+      "startedAtMs": 1794917878812,
+      "timeLimitSeconds": 600
+    }
+  }
+}

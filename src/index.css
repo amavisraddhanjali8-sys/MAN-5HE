@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', 'Noto Sans Sinhala', sans-serif;
+    --font-body: 'DM Sans', 'Noto Sans Sinhala', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: #F3F9FF;
+    color: #0F2942;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes urgent-time-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.035);
+    opacity: 0.86;
+  }
+}
+
+@keyframes urgent-halo-ping {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.24);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.24);
+    opacity: 0;
+  }
+}
+
+.animate-urgent-time {
+  animation: urgent-time-pulse 1.15s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-urgent-halo {
+  animation: urgent-halo-ping 1.25s cubic-bezier(0, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes streak-fire-flicker {
+  0%, 100% {
+    transform: translateY(0) scale(1) rotate(-3deg);
+    opacity: 1;
+  }
+  35% {
+    transform: translateY(-2px) scale(1.15) rotate(4deg);
+    opacity: 0.94;
+  }
+  70% {
+    transform: translateY(-1px) scale(1.06) rotate(-2deg);
+    opacity: 1;
+  }
+}
+
+.animate-streak-fire {
+  display: inline-block;
+  transform-origin: center bottom;
+  animation: streak-fire-flicker 1.35s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

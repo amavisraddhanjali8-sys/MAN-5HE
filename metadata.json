@@ -1,0 +1,6 @@
+{
+  "name": "මං 5හේ — Grade 5 Scholarship Platform",
+  "description": "Sri Lanka's Grade 5 Scholarship learning, 500,000+ shuffled quiz practice, child psychological memory techniques, timed exam papers, parent analytics, and multi-layer secured paid education platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
