@@ -1,4 +1,4 @@
-export type UserRole = 'student' | 'teacher' | 'admin';
+export type UserRole = 'student' | 'teacher' | 'parent' | 'admin';
 
 export type CognitiveDomain =
   | 'Logical & Number Patterns'
@@ -364,7 +364,10 @@ export interface NotificationRecord {
     | 'progress_report'
     | 'admin_oversight'
     | 'knowledge_publication'
-    | 'knowledge_correction';
+    | 'knowledge_correction'
+    | 'security_alert'
+    | 'account_recovery'
+    | 'system_update';
   title: string;
   body: string;
   relatedCaseId?: string | null;
@@ -407,22 +410,29 @@ export interface StudentTrajectory {
 export interface UserAccount {
   id: string;
   userIdCode: string; // e.g. M5-2026-001
+  username?: string;
+  usernameUpdatedAt?: string | null;
   name: string;
   email: string;
   whatsappNumber: string;
+  whatsappVerified?: boolean;
   role: UserRole;
   grade?: string; // e.g. 'Grade 5'
   delegatedPublishSubjects?: string[];
   active?: boolean;
   guardianName?: string;
+  guardianUserId?: string | null;
   guardianContactVerified?: boolean;
   guardianConsentGiven?: boolean;
   notificationPreferences?: NotificationPreferences;
   assignedSubjectIds?: string[]; // populated dynamically for teachers
   passwordHash: string;
+  passwordUpdatedAt?: string | null;
   totpSecret: string;
   emailVerified: boolean;
   totpEnabled: boolean;
+  totpEnrolledAt?: string | null;
+  totpMandatory?: boolean;
   subscriptionStatus: 'trial' | 'active';
   subscriptionPlanId: string | null;
   subscriptionExpiresAt: string | null;
@@ -469,10 +479,14 @@ export interface EmailLog {
     | 'otp_register'
     | 'otp_login'
     | 'otp_payment'
+    | 'otp_recovery'
+    | 'otp_contact_change'
+    | 'security_alert'
     | 'invoice'
     | 'progress_report'
     | 'intervention'
-    | 'knowledge_publication';
+    | 'knowledge_publication'
+    | 'reminder';
   otpCode?: string;
   htmlBody: string;
   sentAt: string;
@@ -487,7 +501,11 @@ export interface WhatsAppLog {
     | 'exam_report'
     | 'milestone'
     | 'intervention'
-    | 'knowledge_publication';
+    | 'knowledge_publication'
+    | 'otp_recovery'
+    | 'otp_contact_change'
+    | 'security_alert'
+    | 'reminder';
   messageText: string;
   deliveryStatus: 'queued' | 'delivered' | 'failed' | 'skipped_unverified';
   sentAt: string;
@@ -872,4 +890,413 @@ export interface AssessmentAnswerRecord {
   answeredAt: string;
 }
 
+// --- Enhancement 04: Secure Account Recovery, Identity Verification, Profile & TOTP ---
+export type RecoveryChannel = 'email' | 'whatsapp';
+
+export interface VerifiedRecoveryContact {
+  id: string;
+  userId: string;
+  channel: RecoveryChannel;
+  contactValue: string;
+  isPrimary: boolean;
+  verified: boolean;
+  verifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthSessionRecord {
+  id: string;
+  userId: string;
+  tokenJti: string;
+  deviceLabel: string;
+  ipAddress: string;
+  userAgent: string;
+  issuedAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  revokeReason: string | null;
+  isCurrent?: boolean;
+}
+
+export interface SecurityEventRecord {
+  id: string;
+  userId: string | null;
+  actorId: string | null;
+  eventType: string;
+  severity: 'info' | 'warning' | 'critical';
+  channel: string | null;
+  ipAddress: string | null;
+  summary: string;
+  metadataJson: string;
+  createdAt: string;
+}
+
+export interface ContactChangeRequestRecord {
+  id: string;
+  userId: string;
+  channel: RecoveryChannel;
+  oldContact: string;
+  newContact: string;
+  status: 'PENDING' | 'VERIFIED' | 'CANCELLED' | 'EXPIRED' | 'ADMIN_REQUIRED';
+  expiresAt: string;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminRecoveryRequestRecord {
+  id: string;
+  targetUserId: string;
+  targetUserName?: string;
+  targetUserEmail?: string;
+  targetUserRole?: UserRole;
+  requestType: 'authenticator_reset' | 'contact_recovery' | 'admin_account_recovery' | 'unlock';
+  requesterIdentifier: string;
+  verificationNotes: string;
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
+  requestedByUserId: string | null;
+  reviewedByAdminId: string | null;
+  cooldownUntil: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TotpEnrollmentSummary {
+  status: 'PENDING_SETUP' | 'ACTIVE' | 'DISABLED' | 'RECOVERY_LOCKED' | 'NOT_ENROLLED';
+  guardianAssisted: boolean;
+  verifiedAt: string | null;
+  backupCodesRemaining: number;
+  mandatoryForRole: boolean;
+  lockedUntil: string | null;
+}
+
+export interface AccountSecurityStatus {
+  userId: string;
+  userIdCode: string;
+  username: string;
+  usernameUpdatedAt: string | null;
+  role: UserRole;
+  email: string;
+  emailVerified: boolean;
+  whatsappNumber: string;
+  whatsappVerified: boolean;
+  passwordUpdatedAt: string | null;
+  totp: TotpEnrollmentSummary;
+  contacts: VerifiedRecoveryContact[];
+  pendingContactChanges: ContactChangeRequestRecord[];
+  activeSessions: AuthSessionRecord[];
+  recentSecurityEvents: SecurityEventRecord[];
+  pendingRecoveryRequests: AdminRecoveryRequestRecord[];
+  notificationPreferences: NotificationPreferences;
+  linkedChildren: { id: string; name: string; userIdCode: string; totpEnabled: boolean; grade: string }[];
+  linkedGuardian: { id: string; name: string; email: string; whatsappNumber: string } | null;
+}
+
+// --- Enhancement 05: Parent Learning Intelligence, Teaching Guidance & Smart Scheduling ---
+export interface GuardianStudentLink {
+  id: string;
+  guardianUserId: string;
+  guardianName?: string;
+  guardianEmail?: string;
+  guardianWhatsapp?: string;
+  studentUserId: string;
+  studentName?: string;
+  studentUserIdCode?: string;
+  studentGrade?: string;
+  studentCurrentLevel?: PaperCategoryLevel;
+  relationshipLabel: string;
+  verified: boolean;
+  consentGiven: boolean;
+  canViewReports: boolean;
+  canManageSchedule: boolean;
+  canReceiveNotifications: boolean;
+  studentCanEditSchedule: boolean;
+  studentDailyMaxMinutes: number;
+  studentRescheduleWindowHours: number;
+  verifiedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ParentTeachingGuidance {
+  questionId: string;
+  learningObjective: string;
+  whatItTests: string;
+  correctSolutionSteps: string[];
+  plausibleErrorReasons: string[];
+  teachingMethod: string;
+  practicalExamples: string[];
+  questionsToAskChild: string[];
+  commonMistakesToAvoid: string[];
+  followupPracticeSuggestion: string;
+  teacherHelpIndicators: string[];
+  shortCorrectNote: string;
+  sourceType: 'educator_approved' | 'structured_curriculum' | 'ai_adapted';
+  approvedByName?: string | null;
+}
+
+export type ReportCorrectnessStatus =
+  | 'correct'
+  | 'incorrect'
+  | 'partially_correct'
+  | 'unanswered'
+  | 'pending_manual';
+
+export interface ParentReportQuestionItem {
+  snapshotId: string;
+  questionId: string;
+  questionVersion: number;
+  subjectId: string;
+  subjectName: string;
+  topicId: string;
+  topicName: string;
+  subtopicId: string;
+  subtopicName: string;
+  questionType: QuestionType;
+  difficulty: DifficultyTier;
+  learningObjective: string;
+  questionSi: string;
+  questionEn: string;
+  imageUrl?: string;
+  options: [string, string, string, string];
+  studentAnswerDisplay: string;
+  submittedOptionIndex: number | null;
+  submittedAnswerText: string | null;
+  correctAnswerDisplay: string;
+  correctIndex: number;
+  markingCriteria: string;
+  correctnessStatus: ReportCorrectnessStatus;
+  awardedMarks: number;
+  maxMarks: number;
+  hint: string;
+  stepByStepExplanation: string;
+  memoryTrickTitle: string;
+  memoryTrickBody: string;
+  graderComment?: string | null;
+  teachingGuidance: ParentTeachingGuidance;
+  suggestedFollowupActivities: string[];
+  relatedResources: {
+    id: string;
+    title: string;
+    knowledgeType: KnowledgeType;
+    summary: string;
+  }[];
+}
+
+export interface ParentAssessmentReport {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentUserIdCode: string;
+  attemptId: string;
+  attemptSource: 'assessment_attempt' | 'round_attempt';
+  assessmentId: string;
+  assessmentTitle: string;
+  assessmentKind: 'practice_session' | 'mock_exam';
+  finalizationStatus: 'pending_manual_marking' | 'finalized';
+  totalQuestions: number;
+  correctCount: number;
+  incorrectCount: number;
+  partialCount: number;
+  unansweredCount: number;
+  pendingCount: number;
+  awardedMarks: number;
+  maxMarks: number;
+  scorePercent: number | null;
+  timeSpentSeconds: number;
+  parentSummary: string;
+  encouragementNote: string;
+  mainImprovementAreas: {
+    subjectId: string;
+    subjectName: string;
+    topicName: string;
+    accuracyPercent: number;
+    recommendedAction: string;
+  }[];
+  items: ParentReportQuestionItem[];
+  recommendedResources: {
+    id: string;
+    title: string;
+    subjectName: string;
+    summary: string;
+  }[];
+  secureReportPath: string;
+  generatedAt: string;
+  finalizedAt: string | null;
+  updatedAt: string;
+}
+
+export interface ReportDeliveryRecord {
+  id: string;
+  reportId: string;
+  guardianUserId: string;
+  guardianName?: string;
+  channel: 'in_app' | 'email' | 'whatsapp';
+  deliveryStage: 'completion_notice' | 'final_report';
+  dedupeKey: string;
+  deliveryStatus: 'delivered' | 'skipped_unverified' | 'skipped_preference' | 'failed';
+  errorMessage?: string | null;
+  sentAt: string;
+}
+
+export type LearningActivityType =
+  | 'practice'
+  | 'timed_practice'
+  | 'mock_exam'
+  | 'topic_revision'
+  | 'followup_activity';
+
+export type QuestionHistoryFilterMode =
+  | 'all'
+  | 'unattempted'
+  | 'previously_attempted'
+  | 'previously_incorrect'
+  | 'repeated_error'
+  | 'weak_areas'
+  | 'revision_due';
+
+export interface ScheduleQuestionFilters {
+  grade?: string;
+  subjectIds: string[];
+  topicIds?: string[];
+  subtopicIds?: string[];
+  difficultyTiers?: DifficultyTier[];
+  difficultyDistribution?: Partial<Record<DifficultyTier, number>>;
+  questionTypes?: QuestionType[];
+  cognitiveSkills?: string[];
+  learningObjectiveQuery?: string;
+  minMarks?: number;
+  maxMarks?: number;
+  minEstimatedSeconds?: number;
+  maxEstimatedSeconds?: number;
+  historyMode?: QuestionHistoryFilterMode;
+  selectionMode?: AssessmentSelectionMode;
+  balanceByTopic?: boolean;
+  questionCount?: number;
+}
+
+export type TimetableRecurrenceType = 'one_time' | 'daily' | 'weekly' | 'weekdays' | 'custom';
+
+export interface TimetablePresetActivity {
+  id: string;
+  presetId: string;
+  versionNumber: number;
+  sortOrder: number;
+  title: string;
+  activityType: LearningActivityType;
+  dayOffset: number;
+  timeOfDay: string; // HH:MM
+  durationMinutes: number;
+  recurrenceRule: TimetableRecurrenceType;
+  subjectIds: string[];
+  topicIds: string[];
+  difficultyDistribution?: Partial<Record<DifficultyTier, number>>;
+  filterCriteria: ScheduleQuestionFilters;
+  fixedAssessmentId?: string | null;
+  fixedPaperId?: string | null;
+}
+
+export interface TimetablePreset {
+  id: string;
+  title: string;
+  description: string;
+  creatorId: string;
+  creatorName: string;
+  creatorRole: UserRole;
+  targetGrade: string;
+  subjectIds: string[];
+  topicIds: string[];
+  recommendedFrequency: string;
+  status: 'DRAFT' | 'PENDING_REVIEW' | 'PUBLISHED' | 'ARCHIVED';
+  currentVersion: number;
+  activities: TimetablePresetActivity[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudentTimetable {
+  id: string;
+  studentId: string;
+  createdByUserId: string;
+  sourcePresetId?: string | null;
+  sourcePresetVersion?: number | null;
+  title: string;
+  description: string;
+  timezone: string;
+  startDate: string;
+  endDate?: string | null;
+  recurrenceType: TimetableRecurrenceType;
+  weekdays: number[]; // 0=Sun..6=Sat
+  exceptionDates: string[];
+  status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ScheduledSessionStatus =
+  | 'SCHEDULED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'MISSED'
+  | 'PAUSED'
+  | 'CANCELLED';
+
+export interface ScheduledSessionRecord {
+  id: string;
+  timetableId?: string | null;
+  studentId: string;
+  studentName?: string;
+  createdByUserId: string;
+  title: string;
+  activityType: LearningActivityType;
+  timezone: string;
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  durationMinutes: number;
+  gracePeriodMinutes: number;
+  recurrenceKey: string;
+  status: ScheduledSessionStatus;
+  maxAttempts: number;
+  attemptsUsed: number;
+  filterCriteria: ScheduleQuestionFilters;
+  questionSnapshotIds?: string[];
+  fixedAssessmentId?: string | null;
+  fixedPaperId?: string | null;
+  linkedAttemptId?: string | null;
+  completedAt?: string | null;
+  missedDetectedAt?: string | null;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReminderPreferenceRecord {
+  userId: string;
+  studentId: string;
+  leadTimesMinutes: number[];
+  channels: {
+    inApp: boolean;
+    email: boolean;
+    whatsapp: boolean;
+  };
+  dailyDigestEnabled: boolean;
+  updatedAt: string;
+}
+
+export interface ReminderJobRecord {
+  id: string;
+  sessionId: string;
+  recipientUserId: string;
+  recipientRole: UserRole;
+  channel: 'in_app' | 'email' | 'whatsapp';
+  leadMinutes: number;
+  scheduledForUtc: string;
+  dedupeKey: string;
+  status: 'PENDING' | 'SENT' | 'CANCELLED' | 'SKIPPED' | 'FAILED';
+  sentAt?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+}
 

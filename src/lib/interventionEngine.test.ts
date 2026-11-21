@@ -5,8 +5,8 @@ import {
   evaluateCorrectFollowUpForCase,
   evaluateWrongAttemptForCase,
   validateCaseTransition,
-} from './interventionEngine';
-import type { InterventionCase } from './types';
+} from './interventionEngine.ts';
+import type { InterventionCase } from './types.ts';
 
 function makeCase(overrides: Partial<InterventionCase> = {}): InterventionCase {
   return {

@@ -9,7 +9,11 @@ import {
   calculatePaperQualityAndDifficulty,
   generateVirtualQuizFromPool,
 } from '../lib/psychometrics.ts';
-import { hashPassword } from '../lib/security.ts';
+import {
+  encryptTotpSecret,
+  getTotpEncryptionMasterKey,
+  hashPassword,
+} from '../lib/security.ts';
 import {
   buildInvoiceEmailHtml,
   buildProgressEmailHtml,
@@ -472,6 +476,27 @@ export class Man5heDatabase {
       this.db
         .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
         .run(4, '004_subject_question_bank_and_assessments', new Date().toISOString());
+    }
+
+    if (!applied.has(5)) {
+      this.applyMigration5AssessmentPerformanceIndexes();
+      this.db
+        .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(5, '005_enhancement03_performance_indexes', new Date().toISOString());
+    }
+
+    if (!applied.has(6)) {
+      this.applyMigration6IdentityRecoveryAndTotpSchema();
+      this.db
+        .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(6, '006_enhancement04_identity_recovery_totp', new Date().toISOString());
+    }
+
+    if (!applied.has(7)) {
+      this.applyMigration7ParentIntelligenceAndSchedulingSchema();
+      this.db
+        .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(7, '007_enhancement05_parent_intelligence_and_scheduling', new Date().toISOString());
     }
   }
 
@@ -2814,6 +2839,980 @@ export class Man5heDatabase {
            VALUES ('AASN-ASM-1', 'ASM-SEED-001', 'grade', 'Grade 5', 'usr-admin-1', ?)`
         )
         .run(now);
+    }
+  }
+
+  private applyMigration5AssessmentPerformanceIndexes(): void {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_questions_scope_created ON questions(active, approval_status, subject_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_questions_topic_grade_type ON questions(topic_id, subtopic_id, grade, question_type);
+      CREATE INDEX IF NOT EXISTS idx_questions_author ON questions(author_id, approval_status);
+      CREATE INDEX IF NOT EXISTS idx_qa_student_question_status ON question_attempts(student_id, question_id, submission_status);
+      CREATE INDEX IF NOT EXISTS idx_asm_attempts_student_asm ON assessment_attempts(student_id, assessment_id, attempt_number DESC);
+      CREATE INDEX IF NOT EXISTS idx_asm_sections_ver ON assessment_sections(assessment_id, version_number, sort_order);
+    `);
+  }
+
+  private applyMigration6IdentityRecoveryAndTotpSchema(): void {
+    const masterKey = getTotpEncryptionMasterKey();
+    const now = new Date().toISOString();
+
+    // Disable foreign keys outside transaction so users table can be rebuilt with 'parent' role safely
+    this.db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      this.transaction(() => {
+        const userCols = (
+          this.db.prepare('PRAGMA table_info(users)').all() as { name: string }[]
+        ).map((c) => c.name);
+        const hasGrade = userCols.includes('grade');
+        const hasDelegated = userCols.includes('delegated_publish_subjects_json');
+
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS users_v6 (
+            id TEXT PRIMARY KEY,
+            user_id_code TEXT NOT NULL UNIQUE,
+            username TEXT,
+            username_updated_at TEXT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            whatsapp_number TEXT NOT NULL,
+            whatsapp_verified INTEGER NOT NULL DEFAULT 1,
+            role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'parent', 'admin')),
+            grade TEXT NOT NULL DEFAULT 'Grade 5',
+            delegated_publish_subjects_json TEXT NOT NULL DEFAULT '[]',
+            active INTEGER NOT NULL DEFAULT 1,
+            guardian_name TEXT NOT NULL DEFAULT '',
+            guardian_user_id TEXT,
+            guardian_contact_verified INTEGER NOT NULL DEFAULT 1,
+            guardian_consent_given INTEGER NOT NULL DEFAULT 1,
+            notification_preferences_json TEXT NOT NULL DEFAULT '{"inApp":true,"email":true,"whatsapp":true,"groupedSummary":false}',
+            password_hash TEXT NOT NULL,
+            password_updated_at TEXT,
+            totp_secret TEXT NOT NULL,
+            email_verified INTEGER NOT NULL DEFAULT 1,
+            totp_enabled INTEGER NOT NULL DEFAULT 0,
+            totp_enrolled_at TEXT,
+            totp_last_accepted_step INTEGER,
+            totp_failed_attempts INTEGER NOT NULL DEFAULT 0,
+            totp_locked_until TEXT,
+            subscription_status TEXT NOT NULL DEFAULT 'trial' CHECK (subscription_status IN ('trial', 'active')),
+            subscription_plan_id TEXT,
+            subscription_expires_at TEXT,
+            current_level TEXT NOT NULL DEFAULT 'Foundation Simple',
+            stars INTEGER NOT NULL DEFAULT 0,
+            streak_days INTEGER NOT NULL DEFAULT 0,
+            last_practice_date TEXT,
+            daily_goal_questions INTEGER NOT NULL DEFAULT 10,
+            created_at TEXT NOT NULL
+          );
+        `);
+
+        const existingUsers = this.db.prepare('SELECT * FROM users').all() as Record<
+          string,
+          unknown
+        >[];
+        const usedUsernames = new Set<string>();
+        const preferredUsernameById: Record<string, string> = {
+          'usr-student-1': 'sayuri.perera',
+          'usr-student-2': 'kasun.j',
+          'usr-teacher-1': 'nimali.fernando',
+          'usr-teacher-2': 'suren.kumar',
+          'usr-admin-1': 'kavinda.admin',
+        };
+
+        const insertUserV6 = this.db.prepare(`
+          INSERT INTO users_v6 (
+            id, user_id_code, username, username_updated_at, name, email, whatsapp_number,
+            whatsapp_verified, role, grade, delegated_publish_subjects_json, active,
+            guardian_name, guardian_user_id, guardian_contact_verified, guardian_consent_given,
+            notification_preferences_json, password_hash, password_updated_at, totp_secret,
+            email_verified, totp_enabled, totp_enrolled_at, totp_last_accepted_step,
+            totp_failed_attempts, totp_locked_until, subscription_status, subscription_plan_id,
+            subscription_expires_at, current_level, stars, streak_days, last_practice_date,
+            daily_goal_questions, created_at
+          ) VALUES (?, ?, ?, NULL, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const u of existingUsers) {
+          const uid = String(u.id);
+          const rawPreferred =
+            preferredUsernameById[uid] ||
+            String(u.user_id_code || uid)
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9._-]/g, '_');
+          let candidate = rawPreferred.length >= 4 ? rawPreferred.slice(0, 30) : `u_${rawPreferred}`;
+          while (usedUsernames.has(candidate)) {
+            candidate = `${candidate.slice(0, 24)}_${crypto.randomBytes(2).toString('hex')}`;
+          }
+          usedUsernames.add(candidate);
+
+          const rawTotp = String(u.totp_secret || 'JBSWY3DPEHPK3PXP');
+          const encryptedSecret = encryptTotpSecret(rawTotp, masterKey);
+          const totpEnabled = Number(u.totp_enabled ?? 0) === 1;
+          const createdAt = String(u.created_at || now);
+
+          insertUserV6.run(
+            uid,
+            String(u.user_id_code),
+            candidate,
+            String(u.name),
+            String(u.email).toLowerCase(),
+            String(u.whatsapp_number || '+94770000000'),
+            String(u.role),
+            hasGrade ? String(u.grade || 'Grade 5') : 'Grade 5',
+            hasDelegated ? String(u.delegated_publish_subjects_json || '[]') : '[]',
+            Number(u.active ?? 1),
+            String(u.guardian_name || ''),
+            uid === 'usr-student-1' ? 'usr-parent-1' : null,
+            Number(u.guardian_contact_verified ?? 1),
+            Number(u.guardian_consent_given ?? 1),
+            String(
+              u.notification_preferences_json ||
+                '{"inApp":true,"email":true,"whatsapp":true,"groupedSummary":false}'
+            ),
+            String(u.password_hash),
+            createdAt,
+            encryptedSecret,
+            Number(u.email_verified ?? 1),
+            totpEnabled ? 1 : 0,
+            totpEnabled ? createdAt : null,
+            String(u.subscription_status || 'trial'),
+            u.subscription_plan_id ? String(u.subscription_plan_id) : null,
+            u.subscription_expires_at ? String(u.subscription_expires_at) : null,
+            String(u.current_level || 'Foundation Simple'),
+            Number(u.stars ?? 0),
+            Number(u.streak_days ?? 0),
+            u.last_practice_date ? String(u.last_practice_date) : null,
+            Number(u.daily_goal_questions ?? 10),
+            createdAt
+          );
+        }
+
+        this.db.exec('DROP TABLE users;');
+        this.db.exec('ALTER TABLE users_v6 RENAME TO users;');
+        this.db.exec(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(LOWER(username)) WHERE username IS NOT NULL;'
+        );
+
+        // Seed parent / guardian account linked to Sayuri Perera (usr-student-1)
+        const parentTotp = encryptTotpSecret('JBSWY3DPEHPK3PXP', masterKey);
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO users (
+              id, user_id_code, username, name, email, whatsapp_number, whatsapp_verified,
+              role, grade, delegated_publish_subjects_json, active, guardian_name, guardian_user_id,
+              guardian_contact_verified, guardian_consent_given, notification_preferences_json,
+              password_hash, password_updated_at, totp_secret, email_verified, totp_enabled,
+              subscription_status, current_level, stars, streak_days, daily_goal_questions, created_at
+            ) VALUES (
+              'usr-parent-1', 'M5-PAR-01', 'ruwani.perera', 'Mrs. Ruwani Perera', 'parent@man5he.lk',
+              '+94771234567', 1, 'parent', 'Parent / Guardian', '[]', 1, '', NULL, 1, 1,
+              '{"inApp":true,"email":true,"whatsapp":true,"groupedSummary":false}',
+              ?, ?, ?, 1, 0, 'active', 'Balanced Standard', 0, 0, 10, ?
+            )`
+          )
+          .run(hashPassword('Parent@2026'), now, parentTotp, '2026-01-05T08:00:00.000Z');
+
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS verified_recovery_contacts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+            contact_value TEXT NOT NULL,
+            is_primary INTEGER NOT NULL DEFAULT 1,
+            verified INTEGER NOT NULL DEFAULT 1,
+            verified_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(user_id, channel, contact_value)
+          );
+
+          CREATE TABLE IF NOT EXISTS verification_challenges (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            purpose TEXT NOT NULL CHECK (purpose IN ('password_recovery', 'contact_change_email', 'contact_change_whatsapp', 'guardian_totp_assist')),
+            channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+            destination TEXT NOT NULL,
+            otp_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            attempts_count INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 5,
+            resend_count INTEGER NOT NULL DEFAULT 0,
+            last_sent_at TEXT NOT NULL,
+            consumed_at TEXT,
+            invalidated_at TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS password_reset_authorizations (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            challenge_id TEXT NOT NULL REFERENCES verification_challenges(id) ON DELETE CASCADE,
+            requires_totp INTEGER NOT NULL DEFAULT 0,
+            totp_verified INTEGER NOT NULL DEFAULT 0,
+            reset_token_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS password_history (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS totp_enrollments (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            encrypted_secret TEXT NOT NULL,
+            algorithm TEXT NOT NULL DEFAULT 'SHA1',
+            digits INTEGER NOT NULL DEFAULT 6,
+            period_seconds INTEGER NOT NULL DEFAULT 30,
+            status TEXT NOT NULL CHECK (status IN ('PENDING_SETUP', 'ACTIVE', 'DISABLED', 'RECOVERY_LOCKED')),
+            guardian_assisted INTEGER NOT NULL DEFAULT 0,
+            enrolled_by_user_id TEXT,
+            last_accepted_step INTEGER,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until TEXT,
+            verified_at TEXT,
+            disabled_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS totp_backup_codes (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code_hash TEXT NOT NULL,
+            code_hint TEXT NOT NULL,
+            batch_id TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS auth_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token_jti TEXT NOT NULL UNIQUE,
+            device_label TEXT NOT NULL DEFAULT 'Web Browser',
+            ip_address TEXT NOT NULL DEFAULT 'unknown',
+            user_agent TEXT NOT NULL DEFAULT '',
+            issued_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            revoke_reason TEXT
+          );
+
+          CREATE TABLE IF NOT EXISTS username_history (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            old_username TEXT,
+            new_username TEXT NOT NULL,
+            changed_by_user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS contact_change_requests (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+            old_contact TEXT NOT NULL,
+            new_contact TEXT NOT NULL,
+            challenge_id TEXT,
+            step_up_verified INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL CHECK (status IN ('PENDING', 'VERIFIED', 'CANCELLED', 'EXPIRED', 'ADMIN_REQUIRED')),
+            expires_at TEXT NOT NULL,
+            completed_at TEXT,
+            created_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS admin_recovery_requests (
+            id TEXT PRIMARY KEY,
+            target_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            request_type TEXT NOT NULL CHECK (request_type IN ('authenticator_reset', 'contact_recovery', 'admin_account_recovery', 'unlock')),
+            requester_identifier TEXT NOT NULL,
+            verification_notes TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK (status IN ('PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'COMPLETED')),
+            requested_by_user_id TEXT,
+            reviewed_by_admin_id TEXT,
+            verification_evidence_json TEXT NOT NULL DEFAULT '{}',
+            cooldown_until TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+
+          CREATE TABLE IF NOT EXISTS security_events (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            actor_id TEXT,
+            event_type TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+            channel TEXT,
+            ip_address TEXT,
+            summary TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_recovery_contacts_lookup ON verified_recovery_contacts(channel, contact_value, verified);
+          CREATE INDEX IF NOT EXISTS idx_challenges_user_purpose ON verification_challenges(user_id, purpose, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_reset_auth_token ON password_reset_authorizations(reset_token_hash);
+          CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, revoked_at, last_seen_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_security_events_user ON security_events(user_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_admin_recovery_status ON admin_recovery_requests(status, created_at DESC);
+        `);
+
+        // Populate verified_recovery_contacts, password_history, and active totp_enrollments for seeded users
+        const allUsers = this.db.prepare('SELECT * FROM users').all() as Record<string, unknown>[];
+        const insertContact = this.db.prepare(`
+          INSERT OR IGNORE INTO verified_recovery_contacts (
+            id, user_id, channel, contact_value, is_primary, verified, verified_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+        `);
+        const insertPwHist = this.db.prepare(`
+          INSERT INTO password_history (id, user_id, password_hash, created_at)
+          VALUES (?, ?, ?, ?)
+        `);
+        const insertTotpEnr = this.db.prepare(`
+          INSERT OR IGNORE INTO totp_enrollments (
+            id, user_id, encrypted_secret, algorithm, digits, period_seconds, status,
+            guardian_assisted, enrolled_by_user_id, verified_at, created_at, updated_at
+          ) VALUES (?, ?, ?, 'SHA1', 6, 30, 'ACTIVE', 0, ?, ?, ?, ?)
+        `);
+
+        for (const u of allUsers) {
+          const uid = String(u.id);
+          const created = String(u.created_at || now);
+          const emailVer = Number(u.email_verified ?? 1) === 1;
+          const waVer = Number(u.whatsapp_verified ?? 1) === 1;
+
+          insertContact.run(
+            `VRC-EML-${uid}`,
+            uid,
+            'email',
+            String(u.email).toLowerCase(),
+            emailVer ? 1 : 0,
+            emailVer ? created : null,
+            created,
+            now
+          );
+          if (u.whatsapp_number) {
+            insertContact.run(
+              `VRC-WA-${uid}`,
+              uid,
+              'whatsapp',
+              String(u.whatsapp_number),
+              waVer ? 1 : 0,
+              waVer ? created : null,
+              created,
+              now
+            );
+          }
+          insertPwHist.run(`PWH-${crypto.randomBytes(5).toString('hex')}`, uid, String(u.password_hash), created);
+
+          if (Number(u.totp_enabled ?? 0) === 1) {
+            insertTotpEnr.run(
+              `TOTP-${uid}`,
+              uid,
+              String(u.totp_secret),
+              uid,
+              created,
+              created,
+              now
+            );
+          }
+        }
+      });
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON;');
+    }
+
+    const fkErrors = this.db.prepare('PRAGMA foreign_key_check').all();
+    if (fkErrors.length > 0) {
+      throw new Error(`Foreign key integrity check failed after migration 6: ${JSON.stringify(fkErrors)}`);
+    }
+  }
+
+  private applyMigration7ParentIntelligenceAndSchedulingSchema(): void {
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS guardian_student_links (
+          id TEXT PRIMARY KEY,
+          guardian_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          student_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          relationship_label TEXT NOT NULL DEFAULT 'Parent / Guardian',
+          verified INTEGER NOT NULL DEFAULT 1,
+          consent_given INTEGER NOT NULL DEFAULT 1,
+          can_view_reports INTEGER NOT NULL DEFAULT 1,
+          can_manage_schedule INTEGER NOT NULL DEFAULT 1,
+          can_receive_notifications INTEGER NOT NULL DEFAULT 1,
+          student_can_edit_schedule INTEGER NOT NULL DEFAULT 0,
+          student_daily_max_minutes INTEGER NOT NULL DEFAULT 120,
+          student_reschedule_window_hours INTEGER NOT NULL DEFAULT 24,
+          verified_by TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(guardian_user_id, student_user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS question_teaching_guides (
+          question_id TEXT PRIMARY KEY,
+          learning_objective TEXT NOT NULL DEFAULT '',
+          what_it_tests TEXT NOT NULL,
+          correct_solution_steps_json TEXT NOT NULL,
+          plausible_error_reasons_json TEXT NOT NULL,
+          teaching_method TEXT NOT NULL,
+          practical_examples_json TEXT NOT NULL,
+          questions_to_ask_json TEXT NOT NULL,
+          common_mistakes_to_avoid_json TEXT NOT NULL,
+          followup_practice_suggestion TEXT NOT NULL,
+          teacher_help_indicators_json TEXT NOT NULL,
+          short_correct_note TEXT NOT NULL,
+          source_type TEXT NOT NULL DEFAULT 'educator_approved',
+          approved_by_id TEXT,
+          approved_by_name TEXT,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS parent_assessment_reports (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          student_name TEXT NOT NULL,
+          student_user_id_code TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          attempt_source TEXT NOT NULL CHECK (attempt_source IN ('assessment_attempt', 'round_attempt')),
+          assessment_id TEXT NOT NULL,
+          assessment_title TEXT NOT NULL,
+          assessment_kind TEXT NOT NULL CHECK (assessment_kind IN ('practice_session', 'mock_exam')),
+          finalization_status TEXT NOT NULL CHECK (finalization_status IN ('pending_manual_marking', 'finalized')),
+          total_questions INTEGER NOT NULL,
+          correct_count INTEGER NOT NULL,
+          incorrect_count INTEGER NOT NULL,
+          partial_count INTEGER NOT NULL,
+          unanswered_count INTEGER NOT NULL,
+          pending_count INTEGER NOT NULL,
+          awarded_marks REAL NOT NULL,
+          max_marks REAL NOT NULL,
+          score_percent REAL,
+          time_spent_seconds INTEGER NOT NULL,
+          parent_summary TEXT NOT NULL,
+          encouragement_note TEXT NOT NULL,
+          main_improvement_areas_json TEXT NOT NULL DEFAULT '[]',
+          items_json TEXT NOT NULL DEFAULT '[]',
+          recommended_resources_json TEXT NOT NULL DEFAULT '[]',
+          secure_report_path TEXT NOT NULL,
+          generated_at TEXT NOT NULL,
+          finalized_at TEXT,
+          updated_at TEXT NOT NULL,
+          UNIQUE(attempt_source, attempt_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS report_deliveries (
+          id TEXT PRIMARY KEY,
+          report_id TEXT NOT NULL REFERENCES parent_assessment_reports(id) ON DELETE CASCADE,
+          guardian_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          guardian_name TEXT NOT NULL,
+          channel TEXT NOT NULL CHECK (channel IN ('in_app', 'email', 'whatsapp')),
+          delivery_stage TEXT NOT NULL CHECK (delivery_stage IN ('completion_notice', 'final_report')),
+          dedupe_key TEXT NOT NULL UNIQUE,
+          delivery_status TEXT NOT NULL CHECK (delivery_status IN ('delivered', 'skipped_unverified', 'skipped_preference', 'failed')),
+          error_message TEXT,
+          sent_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS timetable_presets (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          creator_id TEXT NOT NULL REFERENCES users(id),
+          creator_name TEXT NOT NULL,
+          creator_role TEXT NOT NULL,
+          target_grade TEXT NOT NULL DEFAULT 'Grade 5',
+          subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          topic_ids_json TEXT NOT NULL DEFAULT '[]',
+          recommended_frequency TEXT NOT NULL DEFAULT 'Weekly (3-4 sessions)',
+          status TEXT NOT NULL CHECK (status IN ('DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'ARCHIVED')),
+          current_version INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS timetable_preset_versions (
+          id TEXT PRIMARY KEY,
+          preset_id TEXT NOT NULL REFERENCES timetable_presets(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          change_note TEXT NOT NULL DEFAULT '',
+          changed_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          UNIQUE(preset_id, version_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS timetable_preset_activities (
+          id TEXT PRIMARY KEY,
+          preset_id TEXT NOT NULL REFERENCES timetable_presets(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 1,
+          title TEXT NOT NULL,
+          activity_type TEXT NOT NULL CHECK (activity_type IN ('practice','timed_practice','mock_exam','topic_revision','followup_activity')),
+          day_offset INTEGER NOT NULL DEFAULT 0,
+          time_of_day TEXT NOT NULL,
+          duration_minutes INTEGER NOT NULL,
+          recurrence_rule TEXT NOT NULL CHECK (recurrence_rule IN ('one_time','daily','weekly','weekdays','custom')),
+          subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          topic_ids_json TEXT NOT NULL DEFAULT '[]',
+          difficulty_distribution_json TEXT NOT NULL DEFAULT '{}',
+          filter_criteria_json TEXT NOT NULL DEFAULT '{}',
+          fixed_assessment_id TEXT,
+          fixed_paper_id TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS student_timetables (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          source_preset_id TEXT,
+          source_preset_version INTEGER,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          timezone TEXT NOT NULL DEFAULT 'Asia/Colombo',
+          start_date TEXT NOT NULL,
+          end_date TEXT,
+          recurrence_type TEXT NOT NULL CHECK (recurrence_type IN ('one_time','daily','weekly','weekdays','custom')),
+          weekdays_json TEXT NOT NULL DEFAULT '[]',
+          exception_dates_json TEXT NOT NULL DEFAULT '[]',
+          status TEXT NOT NULL CHECK (status IN ('ACTIVE','PAUSED','COMPLETED','CANCELLED')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS scheduled_sessions (
+          id TEXT PRIMARY KEY,
+          timetable_id TEXT REFERENCES student_timetables(id) ON DELETE SET NULL,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          title TEXT NOT NULL,
+          activity_type TEXT NOT NULL CHECK (activity_type IN ('practice','timed_practice','mock_exam','topic_revision','followup_activity')),
+          timezone TEXT NOT NULL DEFAULT 'Asia/Colombo',
+          scheduled_start_utc TEXT NOT NULL,
+          scheduled_end_utc TEXT NOT NULL,
+          duration_minutes INTEGER NOT NULL,
+          grace_period_minutes INTEGER NOT NULL DEFAULT 15,
+          recurrence_key TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('SCHEDULED','IN_PROGRESS','COMPLETED','MISSED','PAUSED','CANCELLED')),
+          max_attempts INTEGER NOT NULL DEFAULT 1,
+          attempts_used INTEGER NOT NULL DEFAULT 0,
+          filter_criteria_json TEXT NOT NULL DEFAULT '{}',
+          question_snapshot_ids_json TEXT NOT NULL DEFAULT '[]',
+          fixed_assessment_id TEXT,
+          fixed_paper_id TEXT,
+          linked_attempt_id TEXT,
+          completed_at TEXT,
+          missed_detected_at TEXT,
+          notes TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS reminder_preferences (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          lead_times_json TEXT NOT NULL DEFAULT '[1440,60,15]',
+          channels_json TEXT NOT NULL DEFAULT '{"inApp":true,"email":true,"whatsapp":true}',
+          daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, student_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS reminder_jobs (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES scheduled_sessions(id) ON DELETE CASCADE,
+          recipient_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          recipient_role TEXT NOT NULL,
+          channel TEXT NOT NULL CHECK (channel IN ('in_app','email','whatsapp')),
+          lead_minutes INTEGER NOT NULL,
+          scheduled_for_utc TEXT NOT NULL,
+          dedupe_key TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL CHECK (status IN ('PENDING','SENT','CANCELLED','SKIPPED','FAILED')),
+          sent_at TEXT,
+          error_message TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS schedule_audit_events (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          actor_id TEXT NOT NULL,
+          actor_role TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gsl_guardian ON guardian_student_links(guardian_user_id, verified);
+        CREATE INDEX IF NOT EXISTS idx_gsl_student ON guardian_student_links(student_user_id, verified);
+        CREATE INDEX IF NOT EXISTS idx_par_student_time ON parent_assessment_reports(student_id, generated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sched_student_status ON scheduled_sessions(student_id, status, scheduled_start_utc);
+        CREATE INDEX IF NOT EXISTS idx_remjob_pending_due ON reminder_jobs(status, scheduled_for_utc);
+        CREATE INDEX IF NOT EXISTS idx_tpreset_status ON timetable_presets(status, updated_at DESC);
+      `);
+
+      // Seed verified link between Mrs. Ruwani Perera (usr-parent-1) and Sayuri Perera (usr-student-1)
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO guardian_student_links (
+            id, guardian_user_id, student_user_id, relationship_label, verified, consent_given,
+            can_view_reports, can_manage_schedule, can_receive_notifications,
+            student_can_edit_schedule, student_daily_max_minutes, student_reschedule_window_hours,
+            verified_by, created_at, updated_at
+          ) VALUES (
+            'GSL-SEED-001', 'usr-parent-1', 'usr-student-1', 'Mother (Primary Guardian)', 1, 1,
+            1, 1, 1, 1, 90, 24, 'usr-admin-1', '2026-01-05T08:00:00.000Z', ?
+          )`
+        )
+        .run(now);
+
+      // Default reminder preferences
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO reminder_preferences (
+            user_id, student_id, lead_times_json, channels_json, daily_digest_enabled, updated_at
+          ) VALUES
+          ('usr-parent-1', 'usr-student-1', '[1440,60,15]', '{"inApp":true,"email":true,"whatsapp":true}', 1, ?),
+          ('usr-student-1', 'usr-student-1', '[30,5,0]', '{"inApp":true,"email":false,"whatsapp":false}', 0, ?)`
+        )
+        .run(now, now);
+
+      // Educator-approved parent teaching guides for seed curated questions
+      const insertGuide = this.db.prepare(
+        `INSERT OR IGNORE INTO question_teaching_guides (
+          question_id, learning_objective, what_it_tests, correct_solution_steps_json,
+          plausible_error_reasons_json, teaching_method, practical_examples_json,
+          questions_to_ask_json, common_mistakes_to_avoid_json, followup_practice_suggestion,
+          teacher_help_indicators_json, short_correct_note, source_type, approved_by_id,
+          approved_by_name, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'educator_approved', ?, ?, ?)`
+      );
+
+      const seedGuides = [
+        {
+          qId: 'CUR-001',
+          obj: 'Recognize non-linear growing number sequences by comparing differences between adjacent terms.',
+          tests: 'Logical pattern recognition: seeing how the gap between numbers grows rather than staying constant.',
+          steps: [
+            'Step 1: Write the sequence clearly on paper: 2, 6, 12, 20, 30.',
+            'Step 2: Calculate the jump from each number to the next: +4, +6, +8, +10.',
+            'Step 3: Spot the jump pattern (+2 more each time), so the next jump is +12 -> 30 + 12 = 42.',
+          ],
+          reasons: [
+            'Possibly added the previous jump (+10) again instead of increasing the jump to +12.',
+            'May have looked only at the last digit without writing out the differences between pairs.',
+          ],
+          method: 'Ask your child to draw little "hop arches" under each pair of numbers and write +4, +6, +8 inside each arch. Seeing the hops makes the second layer obvious.',
+          examples: [
+            'Arrange bottle caps or coins in rows: 2 in row 1, then add 4, then add 6, then add 8.',
+            'Try a simpler warm-up sequence: 1, 3, 6, 10, ___ (hops are +2, +3, +4, next +5 -> 15).',
+          ],
+          ask: [
+            'What number is added to jump from 6 to 12, and then from 12 to 20?',
+            'Are the jumps staying the same, or growing steadily by 2?',
+          ],
+          avoid: [
+            'Avoid guessing from the last two digits without drawing the hop differences.',
+            'Avoid rushing your child to do multi-step differences mentally before writing them down.',
+          ],
+          followup: 'Schedule a calm 10-minute Logical Patterns session focusing on number sequence hops.',
+          indicators: [
+            'If your child still finds 2-layer number hops confusing after 3 everyday coin examples, ask their Logic/Math teacher for a visual table session.',
+          ],
+          shortNote: 'Strong pattern thinking! Ask your child to trace the hop differences aloud to reinforce the rule.',
+          byId: 'usr-teacher-1',
+          byName: 'Ms. Nimali Fernando',
+        },
+        {
+          qId: 'CUR-002',
+          obj: 'Solve multi-step fraction word problems using a bar model or remaining quantity check.',
+          tests: 'Understanding "remainder" vs "whole" when solving Grade 5 word problems.',
+          steps: [
+            'Step 1: Read each sentence and mark whether the fraction applies to the whole bar or what is left.',
+            'Step 2: Draw a simple rectangle divided into equal parts so each fraction slice has a number.',
+            'Step 3: Check the final answer by adding all slices back to match the original total.',
+          ],
+          reasons: [
+            'Possibly subtracted the fraction directly without finding the remaining amount first.',
+            'May have skipped reading the second condition in the story.',
+          ],
+          method: 'Use a paper strip cut or folded into equal boxes (Sri Lankan Scholarship bar model method) so your child can physically shade what is used and see what remains.',
+          examples: [
+            'Fold a paper strip into 4 equal quarters to show 1/4 given away and 3/4 remaining.',
+            'Share 12 biscuits between two plates to show "half of the remainder".',
+          ],
+          ask: [
+            'Before we calculate, is this fraction talking about the whole amount or what was left?',
+            'If we add all parts back together, do we get the starting total?',
+          ],
+          avoid: [
+            'Avoid jumping straight into multiplying denominators before sketching a quick box diagram.',
+          ],
+          followup: 'Practice 4 Foundation-level fraction word problems using bar diagrams.',
+          indicators: [
+            'Seek Ms. Nimali Fernando’s guidance if bar-model partitioning remains unclear after two paper-folding activities.',
+          ],
+          shortNote: 'Excellent careful reading on this multi-step Mathematics problem!',
+          byId: 'usr-teacher-1',
+          byName: 'Ms. Nimali Fernando',
+        },
+        {
+          qId: 'CUR-005',
+          obj: 'Identify Sri Lankan provinces, districts, and national heritage facts accurately.',
+          tests: 'Grade 5 Environmental Studies (පරිසරය) recall connecting heritage sites with their districts.',
+          steps: [
+            'Step 1: Connect the heritage landmark to its district and province using a 3-word chain.',
+            'Step 2: Double-check similar sounding districts on a map of Sri Lanka.',
+          ],
+          reasons: [
+            'Possibly mixed up neighbouring Central/North Central districts because they sit close together on heritage tours.',
+          ],
+          method: 'Look at a Sri Lanka district map together for 2 minutes and trace three famous places from home to Central Province.',
+          examples: [
+            'Play a 3-clue travel game: "Which province am I in if I visit Kandy and Matale?"',
+          ],
+          ask: [
+            'Can you point to Central Province on our Sri Lanka map?',
+          ],
+          avoid: [
+            'Avoid memorizing lists silently without tying each place to a story or map spot.',
+          ],
+          followup: 'Read the published guide "Sigiriya Water Gardens & Sri Lankan Endemic Plants" together.',
+          indicators: [
+            'Let Mr. Suren Kumar know if provincial boundaries need an extra classroom map review.',
+          ],
+          shortNote: 'Great recall of Sri Lankan Environmental Studies facts!',
+          byId: 'usr-teacher-2',
+          byName: 'Mr. Suren Kumar',
+        },
+      ];
+
+      for (const g of seedGuides) {
+        insertGuide.run(
+          g.qId,
+          g.obj,
+          g.tests,
+          JSON.stringify(g.steps),
+          JSON.stringify(g.reasons),
+          g.method,
+          JSON.stringify(g.examples),
+          JSON.stringify(g.ask),
+          JSON.stringify(g.avoid),
+          g.followup,
+          JSON.stringify(g.indicators),
+          g.shortNote,
+          g.byId,
+          g.byName,
+          now
+        );
+      }
+
+      // Seed 3 Published Timetable Presets (Admin cross-subject + 2 Teacher subject-scoped)
+      const insertPreset = this.db.prepare(
+        `INSERT OR IGNORE INTO timetable_presets (
+          id, title, description, creator_id, creator_name, creator_role, target_grade,
+          subject_ids_json, topic_ids_json, recommended_frequency, status, current_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'Grade 5', ?, ?, ?, 'PUBLISHED', 1, '2026-11-15T08:00:00.000Z', ?)`
+      );
+      const insertPresetVer = this.db.prepare(
+        `INSERT OR IGNORE INTO timetable_preset_versions (
+          id, preset_id, version_number, title, description, change_note, changed_by, created_at
+        ) VALUES (?, ?, 1, ?, ?, 'Published curriculum preset', ?, '2026-11-15T08:00:00.000Z')`
+      );
+      const insertPresetAct = this.db.prepare(
+        `INSERT OR IGNORE INTO timetable_preset_activities (
+          id, preset_id, version_number, sort_order, title, activity_type, day_offset, time_of_day,
+          duration_minutes, recurrence_rule, subject_ids_json, topic_ids_json, difficulty_distribution_json,
+          filter_criteria_json, fixed_assessment_id, fixed_paper_id
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      // Preset 1: Admin cross-subject balanced sprint
+      insertPreset.run(
+        'PRESET-ADM-SPRINT',
+        'Grade 5 Balanced Weekly Scholarship Plan',
+        'Cross-subject weekday plan combining Mathematics, Logical Patterns, Sinhala, Environmental Studies, and a calm weekend mock paper.',
+        'usr-admin-1',
+        'Kavinda Wickramasinghe',
+        'admin',
+        JSON.stringify(['subj-math', 'subj-logic', 'subj-sinhala', 'subj-env']),
+        JSON.stringify([]),
+        '4 sessions/week (20–30 min/day)',
+        now
+      );
+      insertPresetVer.run(
+        'TPV-ADM-1',
+        'PRESET-ADM-SPRINT',
+        'Grade 5 Balanced Weekly Scholarship Plan',
+        'Cross-subject weekday plan combining Mathematics, Logical Patterns, Sinhala, Environmental Studies, and a calm weekend mock paper.',
+        'usr-admin-1'
+      );
+      insertPresetAct.run(
+        'TPA-ADM-1',
+        'PRESET-ADM-SPRINT',
+        1,
+        'Mathematics Foundation Warm-up',
+        'practice',
+        0,
+        '17:00',
+        20,
+        'weekly',
+        JSON.stringify(['subj-math']),
+        JSON.stringify([]),
+        JSON.stringify({ Simple: 3, Moderate: 3 }),
+        JSON.stringify({ grade: 'Grade 5', subjectIds: ['subj-math'], questionCount: 6, historyMode: 'all', balanceByTopic: true }),
+        null,
+        null
+      );
+      insertPresetAct.run(
+        'TPA-ADM-2',
+        'PRESET-ADM-SPRINT',
+        2,
+        'Sinhala & Environmental Studies Explorer',
+        'topic_revision',
+        2,
+        '17:30',
+        20,
+        'weekly',
+        JSON.stringify(['subj-sinhala', 'subj-env']),
+        JSON.stringify([]),
+        JSON.stringify({ Simple: 4, Moderate: 2 }),
+        JSON.stringify({ grade: 'Grade 5', subjectIds: ['subj-sinhala', 'subj-env'], questionCount: 5, historyMode: 'all', balanceByTopic: true }),
+        null,
+        null
+      );
+      insertPresetAct.run(
+        'TPA-ADM-3',
+        'PRESET-ADM-SPRINT',
+        3,
+        'Logical Patterns Timed Check',
+        'timed_practice',
+        4,
+        '17:00',
+        25,
+        'weekly',
+        JSON.stringify(['subj-logic']),
+        JSON.stringify([]),
+        JSON.stringify({ Simple: 2, Moderate: 3, Challenging: 1 }),
+        JSON.stringify({ grade: 'Grade 5', subjectIds: ['subj-logic'], questionCount: 5, historyMode: 'all' }),
+        null,
+        null
+      );
+
+      // Preset 2: Teacher 1 scoped Math & Logic
+      insertPreset.run(
+        'PRESET-TCH1-MATH',
+        'Mathematics & Logic Fluency Booster (Ms. Nimali)',
+        'Subject-focused weekly sequence covering Arithmetic Fact Families, Logical Patterns, and Spatial Geometry.',
+        'usr-teacher-1',
+        'Ms. Nimali Fernando',
+        'teacher',
+        JSON.stringify(['subj-math', 'subj-logic', 'subj-spatial']),
+        JSON.stringify([]),
+        '3 sessions/week (20 min each)',
+        now
+      );
+      insertPresetVer.run(
+        'TPV-TCH1-1',
+        'PRESET-TCH1-MATH',
+        'Mathematics & Logic Fluency Booster (Ms. Nimali)',
+        'Subject-focused weekly sequence covering Arithmetic Fact Families, Logical Patterns, and Spatial Geometry.',
+        'usr-teacher-1'
+      );
+      insertPresetAct.run(
+        'TPA-TCH1-1',
+        'PRESET-TCH1-MATH',
+        1,
+        'Division & Arithmetic Fact Families',
+        'practice',
+        0,
+        '16:30',
+        20,
+        'weekly',
+        JSON.stringify(['subj-math']),
+        JSON.stringify([]),
+        JSON.stringify({ Simple: 3, Moderate: 3 }),
+        JSON.stringify({ grade: 'Grade 5', subjectIds: ['subj-math'], questionCount: 5, historyMode: 'all' }),
+        null,
+        null
+      );
+      insertPresetAct.run(
+        'TPA-TCH1-2',
+        'PRESET-TCH1-MATH',
+        2,
+        'Spatial Geometry & Sequence Puzzles',
+        'timed_practice',
+        3,
+        '16:30',
+        20,
+        'weekly',
+        JSON.stringify(['subj-logic', 'subj-spatial']),
+        JSON.stringify([]),
+        JSON.stringify({ Simple: 2, Moderate: 3 }),
+        JSON.stringify({ grade: 'Grade 5', subjectIds: ['subj-logic', 'subj-spatial'], questionCount: 5, historyMode: 'all' }),
+        null,
+        null
+      );
+
+      // Preset 3: Teacher 2 scoped Language & Environment
+      insertPreset.run(
+        'PRESET-TCH2-LANG',
+        'Sinhala, English & Environmental Studies Plan (Mr. Suren)',
+        'Steady bilingual reading, grammar particles (Nipatha), and Sri Lankan heritage mastery plan.',
+        'usr-teacher-2',
+        'Mr. Suren Kumar',
+        'teacher',
+        JSON.stringify(['subj-sinhala', 'subj-env', 'subj-english']),
+        JSON.stringify([]),
+        '2 sessions/week (20 min each)',
+        now
+      );
+      insertPresetVer.run(
+        'TPV-TCH2-1',
+        'PRESET-TCH2-LANG',
+        'Sinhala, English & Environmental Studies Plan (Mr. Suren)',
+        'Steady bilingual reading, grammar particles (Nipatha), and Sri Lankan heritage mastery plan.',
+        'usr-teacher-2'
+      );
+      insertPresetAct.run(
+        'TPA-TCH2-1',
+        'PRESET-TCH2-LANG',
+        1,
+        'Sinhala Nipatha & Heritage Quick Check',
+        'practice',
+        1,
+        '18:00',
+        20,
+        'weekly',
+        JSON.stringify(['subj-sinhala', 'subj-env', 'subj-english']),
+        JSON.stringify([]),
+        JSON.stringify({ Simple: 3, Moderate: 2 }),
+        JSON.stringify({ grade: 'Grade 5', subjectIds: ['subj-sinhala', 'subj-env', 'subj-english'], questionCount: 5, historyMode: 'all' }),
+        null,
+        null
+      );
+    });
+
+    const fkErrors = this.db.prepare('PRAGMA foreign_key_check').all();
+    if (fkErrors.length > 0) {
+      throw new Error(`Foreign key integrity check failed after migration 7: ${JSON.stringify(fkErrors)}`);
     }
   }
 

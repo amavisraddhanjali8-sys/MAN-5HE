@@ -24,9 +24,11 @@ import { api, AuthUser } from '../lib/api';
 import { COGNITIVE_DOMAINS, calculateQuizDifficultyScore } from '../lib/psychometrics';
 import type {
   AcademicConfig,
+  AdminRecoveryRequestRecord,
   AuditLogRecord,
   CognitiveDomain,
   ExamPaper,
+  GuardianStudentLink,
   NotificationRecord,
   PaperQualitySummary,
   QuizItem,
@@ -41,6 +43,7 @@ import { KnowledgePublishingConsole } from './KnowledgePublishingConsole';
 import { QuestionBankManager } from './QuestionBankManager';
 import { QuestionReviewDrawer } from './QuestionReviewDrawer';
 import { ScopedAnalyticsView } from './ScopedAnalyticsView';
+import { TimetablePresetManager } from './TimetablePresetManager';
 
 export type AdminSectionId =
   | 'overview'
@@ -202,6 +205,19 @@ export function AdminStudio({
   const [academicConfig, setAcademicConfig] = useState<AcademicConfig | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
   const [oversightNotifications, setOversightNotifications] = useState<NotificationRecord[]>([]);
+  const [recoveryRequests, setRecoveryRequests] = useState<AdminRecoveryRequestRecord[]>([]);
+  const [recoveryReviewNotes, setRecoveryReviewNotes] = useState<Record<string, string>>({});
+  const [recoveryOverrideContact, setRecoveryOverrideContact] = useState<Record<string, string>>({});
+
+  // Enhancement 05: Timetable Presets & Multi-Guardian Family Links
+  const [papersSubTab, setPapersSubTab] = useState<'assessments' | 'presets'>('assessments');
+  const [guardianLinks, setGuardianLinks] = useState<GuardianStudentLink[]>([]);
+  const [guardianDirectory, setGuardianDirectory] = useState<
+    { id: string; name: string; email: string; userIdCode: string }[]
+  >([]);
+  const [newLinkGuardianId, setNewLinkGuardianId] = useState('');
+  const [newLinkStudentId, setNewLinkStudentId] = useState('');
+  const [newLinkRelationship, setNewLinkRelationship] = useState('Mother');
 
   // Drill-down drawers
   const [inspectedQuestionId, setInspectedQuestionId] = useState<string | null>(null);
@@ -244,7 +260,12 @@ export function AdminStudio({
 
   const loadPeopleData = async () => {
     try {
-      const [tRes, sRes] = await Promise.all([api.getTeachers(), api.getScopedStudents()]);
+      const [tRes, sRes, recRes, glRes] = await Promise.all([
+        api.getTeachers(),
+        api.getScopedStudents(),
+        api.getAdminRecoveryRequests().catch(() => ({ requests: [] as AdminRecoveryRequestRecord[] })),
+        api.getGuardianLinks().catch(() => ({ links: [] as GuardianStudentLink[], guardians: [] })),
+      ]);
       setTeachers(tRes.teachers);
       const drafts: Record<string, string[]> = {};
       for (const t of tRes.teachers) {
@@ -252,6 +273,74 @@ export function AdminStudio({
       }
       setTeacherSubjectDrafts(drafts);
       setScopedStudents(sRes.students);
+      setRecoveryRequests(recRes.requests);
+      setGuardianLinks(glRes.links);
+      if (glRes.guardians) {
+        setGuardianDirectory(glRes.guardians);
+        if (!newLinkGuardianId && glRes.guardians.length > 0) {
+          setNewLinkGuardianId(glRes.guardians[0].id);
+        }
+      }
+      if (!newLinkStudentId && sRes.students.length > 0) {
+        setNewLinkStudentId(sRes.students[0].id);
+      }
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
+  };
+
+  const handleCreateGuardianLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLinkGuardianId || !newLinkStudentId) return;
+    setErrorMsg(null);
+    setStatusMsg(null);
+    try {
+      await api.createGuardianLink({
+        guardianUserId: newLinkGuardianId,
+        studentUserId: newLinkStudentId,
+        relationshipLabel: newLinkRelationship.trim() || 'Guardian',
+        verified: true,
+        consentGiven: true,
+      });
+      setStatusMsg('Verified guardian-student family link saved.');
+      await loadPeopleData();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
+  };
+
+  const handleToggleGuardianLinkPermission = async (
+    link: GuardianStudentLink,
+    patch: Partial<GuardianStudentLink>
+  ) => {
+    setErrorMsg(null);
+    try {
+      await api.updateGuardianLinkPermissions(link.id, patch);
+      await loadPeopleData();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
+  };
+
+  const handleReviewRecoveryRequest = async (
+    requestId: string,
+    decision: 'APPROVE' | 'REJECT'
+  ) => {
+    setErrorMsg(null);
+    setStatusMsg(null);
+    const notes = (recoveryReviewNotes[requestId] || '').trim();
+    if (!notes) {
+      setErrorMsg('Enter verification review notes before approving or rejecting a recovery request.');
+      return;
+    }
+    try {
+      await api.reviewAdminRecoveryRequest(requestId, {
+        decision,
+        notes,
+        newContactOverride: (recoveryOverrideContact[requestId] || '').trim() || undefined,
+      });
+      setStatusMsg(`Recovery request ${requestId} ${decision === 'APPROVE' ? 'approved & executed' : 'rejected'}.`);
+      await loadPeopleData();
     } catch (err) {
       setErrorMsg((err as Error).message);
     }
@@ -783,45 +872,87 @@ export function AdminStudio({
         />
       )}
 
-      {/* SECTION 3: EXAMINATION PAPERS & PRACTICE BUILDER */}
+      {/* SECTION 3: EXAMINATION PAPERS, PRACTICE BUILDER & TIMETABLE PRESETS */}
       {currentSection === 'papers' && (
         <div className="space-y-6">
-          <AssessmentBuilderWorkspace
-            role="admin"
-            user={effectiveAdminUser}
-            subjects={subjects}
-            topics={topics}
-            onAssessmentChanged={() => loadAdminData()}
-          />
+          <div className="bg-white rounded-2xl border border-[#DCEBFA] p-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-semibold text-[#526A84] px-2">
+              Build cross-subject assessments, mock exams, or manage approved timetable presets for parents
+            </div>
+            <div className="flex items-center gap-1 p-1 bg-[#F3F9FF] rounded-xl border border-[#DCEBFA]">
+              <button
+                type="button"
+                onClick={() => setPapersSubTab('assessments')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  papersSubTab === 'assessments'
+                    ? 'bg-[#158EE3] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Papers &amp; Assessments
+              </button>
+              <button
+                type="button"
+                data-testid="admin-tab-presets"
+                onClick={() => setPapersSubTab('presets')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  papersSubTab === 'presets'
+                    ? 'bg-[#2E7D32] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Timetable Presets Library
+              </button>
+            </div>
+          </div>
 
-          {papers.length > 0 && (
-            <div className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-3">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#E5F0FA]">
-                <div className="text-sm font-display font-bold text-[#0F2942] flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[#158EE3]" />
-                  <span>Standardized Timed Exam Papers Directory ({papers.length})</span>
-                </div>
-                <span className="text-xs text-[#526A84]">
-                  Legacy &amp; calibrated Grade 5 timed papers
-                </span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {papers.map((p) => (
-                  <div
-                    key={p.id}
-                    className="text-xs p-3.5 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] flex items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-bold text-[#0F2942] truncate">{p.title}</div>
-                      <div className="text-[#526A84] truncate">{p.qualitySummary.categoryLevel}</div>
+          {papersSubTab === 'presets' ? (
+            <TimetablePresetManager
+              role="admin"
+              user={effectiveAdminUser}
+              subjects={subjects}
+              topics={topics}
+            />
+          ) : (
+            <>
+              <AssessmentBuilderWorkspace
+                role="admin"
+                user={effectiveAdminUser}
+                subjects={subjects}
+                topics={topics}
+                onAssessmentChanged={() => loadAdminData()}
+              />
+
+              {papers.length > 0 && (
+                <div className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#E5F0FA]">
+                    <div className="text-sm font-display font-bold text-[#0F2942] flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-[#158EE3]" />
+                      <span>Standardized Timed Exam Papers Directory ({papers.length})</span>
                     </div>
-                    <span className="text-[#158EE3] font-bold shrink-0 tabular-nums">
-                      {p.quizIds.length} Qs · {p.durationMinutes}m · Q:{p.qualitySummary.qualityIndex}
+                    <span className="text-xs text-[#526A84]">
+                      Legacy &amp; calibrated Grade 5 timed papers
                     </span>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {papers.map((p) => (
+                      <div
+                        key={p.id}
+                        className="text-xs p-3.5 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-[#0F2942] truncate">{p.title}</div>
+                          <div className="text-[#526A84] truncate">{p.qualitySummary.categoryLevel}</div>
+                        </div>
+                        <span className="text-[#158EE3] font-bold shrink-0 tabular-nums">
+                          {p.quizIds.length} Qs · {p.durationMinutes}m · Q:{p.qualitySummary.qualityIndex}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1117,6 +1248,215 @@ export function AdminStudio({
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Verified Guardian-Student Family Links (Many-to-Many) */}
+          <div className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#E5F0FA]">
+              <div>
+                <h2 className="text-base font-display font-bold text-[#0F2942]">
+                  Verified Guardian-Student Family Links ({guardianLinks.length})
+                </h2>
+                <p className="text-xs text-[#526A84]">
+                  Authorize multiple guardians per student or one guardian managing multiple children with granular report &amp; schedule permissions.
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={handleCreateGuardianLink}
+              className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl bg-[#F3F9FF] border border-[#CBE2FA] text-xs items-end"
+            >
+              <div>
+                <label className="block font-semibold text-[#476481] mb-1">Guardian</label>
+                <select
+                  value={newLinkGuardianId}
+                  onChange={(e) => setNewLinkGuardianId(e.target.value)}
+                  className="w-full px-2.5 py-2 bg-white border border-[#CBE2FA] rounded-xl"
+                >
+                  {guardianDirectory.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.userIdCode})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-[#476481] mb-1">Student</label>
+                <select
+                  value={newLinkStudentId}
+                  onChange={(e) => setNewLinkStudentId(e.target.value)}
+                  className="w-full px-2.5 py-2 bg-white border border-[#CBE2FA] rounded-xl"
+                >
+                  {scopedStudents.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.userIdCode})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold text-[#476481] mb-1">Relationship</label>
+                <input
+                  type="text"
+                  value={newLinkRelationship}
+                  onChange={(e) => setNewLinkRelationship(e.target.value)}
+                  placeholder="Mother / Father / Guardian"
+                  className="w-full px-2.5 py-2 bg-white border border-[#CBE2FA] rounded-xl"
+                />
+              </div>
+              <button
+                type="submit"
+                className="py-2 px-4 text-xs font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl"
+              >
+                Link Guardian &amp; Student
+              </button>
+            </form>
+
+            {guardianLinks.length > 0 && (
+              <div className="space-y-2 text-xs">
+                {guardianLinks.map((lk) => (
+                  <div
+                    key={lk.id}
+                    className="p-3 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] flex flex-wrap items-center justify-between gap-3"
+                  >
+                    <div>
+                      <span className="font-bold text-[#0F2942]">{lk.guardianName}</span>{' '}
+                      <span className="text-[#526A84]">({lk.relationshipLabel}) →</span>{' '}
+                      <span className="font-bold text-[#158EE3]">{lk.studentName}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {(
+                        [
+                          { field: 'verified', label: 'Verified' },
+                          { field: 'consentGiven', label: 'Consent' },
+                          { field: 'canViewReports', label: 'Reports' },
+                          { field: 'canManageSchedule', label: 'Schedule' },
+                          { field: 'studentCanEditSchedule', label: 'Child Edit' },
+                        ] as const
+                      ).map((flag) => {
+                        const active = Boolean(lk[flag.field]);
+                        return (
+                          <button
+                            key={flag.field}
+                            type="button"
+                            onClick={() =>
+                              handleToggleGuardianLinkPermission(lk, { [flag.field]: !active })
+                            }
+                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
+                              active
+                                ? 'bg-[#EEF9EF] border-[#B7E1BA] text-[#1E6323]'
+                                : 'bg-white border-[#DCEBFA] text-[#526A84]'
+                            }`}
+                          >
+                            {flag.label}: {active ? 'ON' : 'OFF'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Account Recovery & Identity Verification Queue */}
+          <div className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#E5F0FA]">
+              <div>
+                <h2 className="text-base font-display font-bold text-[#0F2942]">
+                  Auditable Identity &amp; Authenticator Recovery Queue ({recoveryRequests.length})
+                </h2>
+                <p className="text-xs text-[#526A84]">
+                  Review lost-authenticator and lost-contact escalations with mandatory verification notes. Administrator accounts remain isolated from non-admin self-service recovery.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadPeopleData}
+                className="px-3 py-1.5 text-xs font-semibold text-[#158EE3] bg-[#F3F9FF] border border-[#CBE2FA] rounded-xl flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh Queue
+              </button>
+            </div>
+
+            {recoveryRequests.length === 0 ? (
+              <div className="py-6 text-center text-xs text-[#526A84]">
+                No pending or historical recovery escalations.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recoveryRequests.map((rq) => (
+                  <div
+                    key={rq.id}
+                    className="p-4 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] space-y-2.5 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-[#0F2942]">
+                          {rq.targetUserName || rq.requesterIdentifier}
+                        </span>{' '}
+                        <span className="font-mono text-[#158EE3]">
+                          ({rq.requestType.replace(/_/g, ' ').toUpperCase()})
+                        </span>
+                      </div>
+                      <span
+                        className={`font-bold px-2.5 py-0.5 rounded-md border text-[11px] ${
+                          rq.status === 'PENDING_APPROVAL'
+                            ? 'bg-[#FFF8EB] border-[#F3D19C] text-[#9A5B00]'
+                            : rq.status === 'COMPLETED'
+                            ? 'bg-[#EEF9EF] border-[#B7E1BA] text-[#1E6323]'
+                            : 'bg-[#FFF2ED] border-[#FAC5B2] text-[#9A2F09]'
+                        }`}
+                      >
+                        {rq.status}
+                      </span>
+                    </div>
+                    <div className="text-[#476481]">
+                      {rq.verificationNotes} · Submitted {new Date(rq.createdAt).toLocaleString()}
+                    </div>
+                    {rq.status === 'PENDING_APPROVAL' && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <input
+                          type="text"
+                          value={recoveryReviewNotes[rq.id] || ''}
+                          onChange={(e) =>
+                            setRecoveryReviewNotes((p) => ({ ...p, [rq.id]: e.target.value }))
+                          }
+                          placeholder="Verification evidence & review notes (required)"
+                          className="flex-1 min-w-[200px] px-3 py-1.5 bg-white border border-[#CBE2FA] rounded-xl text-xs"
+                        />
+                        {rq.requestType === 'contact_recovery' && (
+                          <input
+                            type="text"
+                            value={recoveryOverrideContact[rq.id] || ''}
+                            onChange={(e) =>
+                              setRecoveryOverrideContact((p) => ({ ...p, [rq.id]: e.target.value }))
+                            }
+                            placeholder="Verified contact override (optional)"
+                            className="px-3 py-1.5 bg-white border border-[#CBE2FA] rounded-xl text-xs"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleReviewRecoveryRequest(rq.id, 'APPROVE')}
+                          className="px-3.5 py-1.5 font-bold text-white bg-[#2E7D32] rounded-xl hover:bg-[#236127]"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewRecoveryRequest(rq.id, 'REJECT')}
+                          className="px-3.5 py-1.5 font-bold text-[#9A2F09] bg-[#FFF2ED] border border-[#FAC5B2] rounded-xl"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

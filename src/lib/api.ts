@@ -51,8 +51,22 @@ import type {
   SubtopicNode,
   TopicNode,
   UserRole,
+  AccountSecurityStatus,
+  AdminRecoveryRequestRecord,
+  RecoveryChannel,
   ValidationChecklist,
   WhatsAppLog,
+  GuardianStudentLink,
+  LearningActivityType,
+  ParentAssessmentReport,
+  ReminderJobRecord,
+  ReminderPreferenceRecord,
+  ReportDeliveryRecord,
+  ScheduleQuestionFilters,
+  ScheduledSessionRecord,
+  StudentTimetable,
+  TimetablePreset,
+  TimetableRecurrenceType,
 } from './types';
 import type { PracticeLevelMode, ProficiencyStreamConfig } from './practiceAdaptive';
 import type { StudentImprovementSummary } from './questionIntelligence';
@@ -60,20 +74,27 @@ import type { StudentImprovementSummary } from './questionIntelligence';
 export interface AuthUser {
   id: string;
   userIdCode: string;
+  username?: string;
+  usernameUpdatedAt?: string | null;
   name: string;
   email: string;
   whatsappNumber: string;
+  whatsappVerified?: boolean;
   role: UserRole;
   grade?: string;
   delegatedPublishSubjects?: string[];
   active?: boolean;
   guardianName?: string;
+  guardianUserId?: string | null;
   guardianContactVerified?: boolean;
   guardianConsentGiven?: boolean;
   notificationPreferences?: NotificationPreferences;
   assignedSubjectIds?: string[];
   emailVerified: boolean;
   totpEnabled: boolean;
+  totpEnrolledAt?: string | null;
+  totpMandatory?: boolean;
+  passwordUpdatedAt?: string | null;
   subscriptionStatus: 'trial' | 'active';
   subscriptionPlanId: string | null;
   subscriptionExpiresAt: string | null;
@@ -288,6 +309,7 @@ export const api = {
       mfaRequired?: boolean;
       token?: string;
       user?: AuthUser;
+      totpEnrollmentRequired?: boolean;
       registrationId?: string;
       totpSecret?: string;
       otpAuthUri?: string;
@@ -296,27 +318,43 @@ export const api = {
     }>('/api/auth/register/init', { method: 'POST', body: JSON.stringify(body) }),
 
   registerVerify: (body: { registrationId: string; emailOtp: string; totpCode: string }) =>
-    apiRequest<{ token: string; user: AuthUser }>('/api/auth/register/verify', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
+    apiRequest<{ token: string; user: AuthUser; totpEnrollmentRequired?: boolean }>(
+      '/api/auth/register/verify',
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }
+    ),
 
   loginStep1: (body: Record<string, unknown>) =>
     apiRequest<{
       mfaRequired?: boolean;
+      requireEmailOtp?: boolean;
+      requireTotp?: boolean;
       token?: string;
       user?: AuthUser;
+      totpEnrollmentRequired?: boolean;
       loginChallengeId?: string;
       maskedEmail?: string;
       userName?: string;
       message?: string;
     }>('/api/auth/login/step1', { method: 'POST', body: JSON.stringify(body) }),
 
-  loginStep2: (body: { loginChallengeId: string; emailOtp: string; totpCode: string }) =>
-    apiRequest<{ token: string; user: AuthUser }>('/api/auth/login/step2', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
+  loginStep2: (body: {
+    loginChallengeId: string;
+    emailOtp: string;
+    totpCode: string;
+    backupCode?: string;
+  }) =>
+    apiRequest<{ token: string; user: AuthUser; totpEnrollmentRequired?: boolean }>(
+      '/api/auth/login/step2',
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }
+    ),
+
+  logout: () => apiRequest<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 
   getSandboxInbox: (email?: string) =>
     apiRequest<{ emails: EmailLog[] }>(
@@ -333,9 +371,11 @@ export const api = {
     }>(`/api/auth/demo-totp-helper?identifier=${encodeURIComponent(identifier)}`),
 
   getMe: () =>
-    apiRequest<{ user: AuthUser; totpSetup: { secret: string; qrDataUrl: string } }>(
-      '/api/auth/me'
-    ),
+    apiRequest<{
+      user: AuthUser;
+      totpEnrollmentRequired?: boolean;
+      totpSetup: { secret: string; qrDataUrl: string };
+    }>('/api/auth/me'),
 
   getPlans: () => apiRequest<{ plans: PaymentPlan[] }>('/api/payments/plans'),
 
@@ -444,11 +484,21 @@ export const api = {
     correctCount: number;
     timeSpentSeconds: number;
     domainBreakdown: Record<string, { correct: number; total: number }>;
+    items?: {
+      quizId: string;
+      selectedIndex: number | null;
+      isCorrect: boolean;
+      hintsUsed?: boolean;
+    }[];
+    paperTitle?: string;
+    scheduledSessionId?: string;
   }) =>
-    apiRequest<{ attempt: AttemptRecord; trajectory: StudentTrajectory; user: AuthUser }>(
-      '/api/quizzes/practice-complete',
-      { method: 'POST', body: JSON.stringify(body) }
-    ),
+    apiRequest<{
+      attempt: AttemptRecord;
+      trajectory: StudentTrajectory;
+      parentReportId?: string | null;
+      user: AuthUser;
+    }>('/api/quizzes/practice-complete', { method: 'POST', body: JSON.stringify(body) }),
 
   getPapers: () => apiRequest<{ papers: ExamPaper[] }>('/api/papers'),
 
@@ -467,11 +517,13 @@ export const api = {
       answers: Record<string, number>;
       perQuestionDurationsMs?: Record<string, number>;
       timedOut?: boolean;
+      scheduledSessionId?: string;
     }
   ) =>
     apiRequest<{
       attempt: AttemptRecord;
       trajectory: StudentTrajectory;
+      parentReportId?: string | null;
       reviewItems: {
         quizId: string;
         questionSi: string;
@@ -489,13 +541,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  getStudentAnalytics: () =>
+  getStudentAnalytics: (studentId?: string) =>
     apiRequest<{
       user: AuthUser;
       attempts: AttemptRecord[];
       trajectory: StudentTrajectory;
       recentQuestionAnalytics?: ScopedAnalyticsResponse;
-    }>('/api/analytics/student'),
+    }>(`/api/analytics/student${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`),
 
   updateDailyStudyGoal: (targetQuestions: number) =>
     apiRequest<{ user: AuthUser; dailyGoalQuestions: number }>(
@@ -575,6 +627,9 @@ export const api = {
     return apiRequest<{
       totalVirtualPool: number;
       curatedCount: number;
+      totalCount?: number;
+      page?: number;
+      pageSize?: number;
       quizzes: (QuizItem & {
         stats?: {
           validAttempts: number;
@@ -1224,6 +1279,12 @@ export const api = {
       { method: 'POST' }
     ),
 
+  createAssessmentNewVersion: (assessmentId: string) =>
+    apiRequest<{ assessment: AssessmentRecord }>(
+      `/api/assessments/${encodeURIComponent(assessmentId)}/new-version`,
+      { method: 'POST' }
+    ),
+
   exportAssessmentPrintable: (assessmentId: string, includeAnswerKey = false) =>
     apiRequest<{
       assessment: AssessmentRecord;
@@ -1362,6 +1423,32 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) }
     ),
 
+  checkPracticeAnswer: (
+    assessmentId: string,
+    body: {
+      attemptId: string;
+      snapshotId: string;
+      submittedOptionIndex?: number | null;
+      submittedAnswerText?: string | null;
+    }
+  ) =>
+    apiRequest<{
+      snapshotId: string;
+      questionId: string;
+      isCorrect: boolean | null;
+      markingStatus: 'auto_graded' | 'pending_manual';
+      awardedMarks: number;
+      maxMarks: number;
+      correctDisplayOptionIndex: number | null;
+      acceptedAnswers: string[];
+      explanation: string;
+      memoryTrickTitle: string;
+      memoryTrickBody: string;
+    }>(`/api/assessments/${encodeURIComponent(assessmentId)}/check-answer`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   submitAssessmentAttempt: (
     assessmentId: string,
     body: {
@@ -1404,7 +1491,522 @@ export const api = {
       awaitingReleaseNotice: string | null;
       items: AssessmentAttemptReviewItem[];
     }>(`/api/assessment-attempts/${encodeURIComponent(attemptId)}/review`),
+
+  // --- Enhancement 04: Secure Account Recovery, Profile Management & Google Authenticator ---
+  requestPasswordRecovery: (body: {
+    identifier: string;
+    channel: RecoveryChannel;
+    resendChallengeId?: string;
+  }) =>
+    apiRequest<{
+      accepted: true;
+      channel: RecoveryChannel;
+      challengeId: string;
+      expiresInSeconds: number;
+      message: string;
+    }>('/api/auth/recovery/request', { method: 'POST', body: JSON.stringify(body) }),
+
+  verifyRecoveryChallenge: (body: {
+    challengeId: string;
+    identifier?: string;
+    otpCode: string;
+    totpCode?: string;
+    backupCode?: string;
+  }) =>
+    apiRequest<{
+      verified: true;
+      resetToken: string;
+      requiresTotp: boolean;
+      totpVerified: boolean;
+      expiresInSeconds: number;
+    }>('/api/auth/recovery/verify', { method: 'POST', body: JSON.stringify(body) }),
+
+  completePasswordReset: (body: {
+    resetToken: string;
+    newPassword: string;
+    totpCode?: string;
+    backupCode?: string;
+  }) =>
+    apiRequest<{ ok: true; sessionsRevoked: number }>('/api/auth/recovery/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  recoverAuthenticator: (body: {
+    identifier: string;
+    password: string;
+    mode: 'backup_code' | 'admin_request';
+    backupCode?: string;
+    reason?: string;
+  }) =>
+    apiRequest<{
+      mode: 'backup_code' | 'admin_request';
+      recovered?: boolean;
+      setup?: TotpEnrollmentSetup;
+      requestId?: string;
+      message: string;
+    }>('/api/auth/recovery/authenticator', { method: 'POST', body: JSON.stringify(body) }),
+
+  completeProtectedAdminRecovery: (body: {
+    identifier: string;
+    adminRecoveryKey: string;
+    newPassword: string;
+    verificationNote?: string;
+  }) =>
+    apiRequest<{ ok: true; adminUserId: string; sessionsRevoked: number }>(
+      '/api/auth/admin-recovery',
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  getAccountSecurityStatus: () =>
+    apiRequest<AccountSecurityStatus>('/api/account/security'),
+
+  changePassword: (body: {
+    currentPassword: string;
+    newPassword: string;
+    totpCode?: string;
+    revokeOtherSessions?: boolean;
+  }) =>
+    apiRequest<{ ok: true; sessionsRevoked: number }>('/api/account/password/change', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  changeUsername: (body: {
+    newUsername: string;
+    currentPassword?: string;
+    totpCode?: string;
+  }) =>
+    apiRequest<{ user: AuthUser }>('/api/account/username', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  requestContactChange: (body: {
+    channel: RecoveryChannel;
+    newContact: string;
+    currentPassword: string;
+    totpCode?: string;
+    lostOldContact?: boolean;
+    verificationNotes?: string;
+  }) =>
+    apiRequest<{
+      escalatedToAdmin: boolean;
+      requestId: string;
+      channel: RecoveryChannel;
+      expiresInSeconds?: number;
+      message: string;
+    }>('/api/account/contacts/request-change', { method: 'POST', body: JSON.stringify(body) }),
+
+  confirmContactChange: (body: { requestId: string; otpCode: string }) =>
+    apiRequest<{ user: AuthUser }>('/api/account/contacts/confirm-change', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  startTotpEnrollment: (
+    body: {
+      targetStudentId?: string;
+      currentPassword?: string;
+      currentTotpCode?: string;
+    } = {}
+  ) =>
+    apiRequest<TotpEnrollmentSetup>('/api/account/totp/enroll/start', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  confirmTotpEnrollment: (body: { code: string; targetStudentId?: string }) =>
+    apiRequest<{
+      enabled: true;
+      targetUserId: string;
+      guardianAssisted: boolean;
+      backupCodes: string[];
+      user: AuthUser;
+    }>('/api/account/totp/enroll/confirm', { method: 'POST', body: JSON.stringify(body) }),
+
+  regenerateBackupCodes: (body: { currentPassword: string; totpCode: string }) =>
+    apiRequest<{ backupCodes: string[] }>('/api/account/totp/backup-codes/regenerate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  guardianRecoverChildTotp: (body: {
+    studentId: string;
+    parentPassword: string;
+    parentTotpCode?: string;
+  }) =>
+    apiRequest<{ setup: TotpEnrollmentSetup; sessionsRevoked: number }>(
+      '/api/account/guardian/recover-child-totp',
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  revokeSession: (sessionId: string) =>
+    apiRequest<{ ok: boolean }>(`/api/account/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+    }),
+
+  revokeOtherSessions: () =>
+    apiRequest<{ ok: boolean; revokedCount: number }>('/api/account/sessions/revoke-others', {
+      method: 'POST',
+    }),
+
+  getAdminRecoveryRequests: () =>
+    apiRequest<{ requests: AdminRecoveryRequestRecord[] }>('/api/admin/recovery-requests'),
+
+  reviewAdminRecoveryRequest: (
+    requestId: string,
+    body: { decision: 'APPROVE' | 'REJECT'; notes: string; newContactOverride?: string }
+  ) =>
+    apiRequest<{ request: AdminRecoveryRequestRecord }>(
+      `/api/admin/recovery-requests/${encodeURIComponent(requestId)}/review`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  // --- Enhancement 05: Parent Learning Intelligence, Teaching Guidance & Smart Timetables ---
+  getGuardianLinks: () =>
+    apiRequest<{
+      links: GuardianStudentLink[];
+      guardians?: { id: string; name: string; email: string; userIdCode: string }[];
+    }>('/api/guardian-links'),
+
+  createGuardianLink: (body: {
+    guardianUserId: string;
+    studentUserId: string;
+    relationshipLabel?: string;
+    verified?: boolean;
+    consentGiven?: boolean;
+    canViewReports?: boolean;
+    canManageSchedule?: boolean;
+    canReceiveNotifications?: boolean;
+    studentCanEditSchedule?: boolean;
+    studentDailyMaxMinutes?: number;
+    studentRescheduleWindowHours?: number;
+  }) =>
+    apiRequest<{ link: GuardianStudentLink }>('/api/guardian-links', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateGuardianLinkPermissions: (
+    linkId: string,
+    patch: Partial<
+      Pick<
+        GuardianStudentLink,
+        | 'relationshipLabel'
+        | 'verified'
+        | 'consentGiven'
+        | 'canViewReports'
+        | 'canManageSchedule'
+        | 'canReceiveNotifications'
+        | 'studentCanEditSchedule'
+        | 'studentDailyMaxMinutes'
+        | 'studentRescheduleWindowHours'
+      >
+    >
+  ) =>
+    apiRequest<{ link: GuardianStudentLink }>(
+      `/api/guardian-links/${encodeURIComponent(linkId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) }
+    ),
+
+  getParentStudentReports: (studentId: string) =>
+    apiRequest<{
+      reports: ParentAssessmentReport[];
+      deliveriesByReport: Record<string, ReportDeliveryRecord[]>;
+    }>(`/api/parent/students/${encodeURIComponent(studentId)}/reports`),
+
+  getParentReportDetail: (reportId: string) =>
+    apiRequest<{ report: ParentAssessmentReport; deliveries: ReportDeliveryRecord[] }>(
+      `/api/parent/reports/${encodeURIComponent(reportId)}`
+    ),
+
+  downloadAuthorizedReportFile: async (reportId: string, format: 'html' | 'pdf') => {
+    const ext = format === 'pdf' ? 'pdf' : 'html';
+    const url = `/api/parent/reports/${encodeURIComponent(reportId)}/export.${ext}`;
+    const token = getStoredToken();
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((data as { error?: string }).error || `Report export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `man5he-learning-report-${reportId}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1500);
+  },
+
+  dispatchParentReport: (reportId: string, channels?: ('in_app' | 'email' | 'whatsapp')[]) =>
+    apiRequest<{ report: ParentAssessmentReport; deliveries: ReportDeliveryRecord[] }>(
+      `/api/parent/reports/${encodeURIComponent(reportId)}/dispatch`,
+      { method: 'POST', body: JSON.stringify({ channels }) }
+    ),
+
+  getTeacherParentSupportInsights: () =>
+    apiRequest<{
+      recentParentSupportSummaries: {
+        reportId: string;
+        studentId: string;
+        studentName: string;
+        assessmentTitle: string;
+        scorePercent: number | null;
+        generatedAt: string;
+        needsAttentionTopics: string[];
+      }[];
+    }>('/api/teacher/parent-support-insights'),
+
+  previewScheduleQuestions: (body: { studentId?: string; filters: ScheduleQuestionFilters }) =>
+    apiRequest<{
+      availableCount: number;
+      requestedCount: number;
+      insufficient: boolean;
+      warnings: string[];
+      subjectCounts: Record<string, number>;
+      difficultyCounts: Record<string, number>;
+      sampleQuestionIds: string[];
+    }>('/api/schedule/questions/preview', { method: 'POST', body: JSON.stringify(body) }),
+
+  getTimetablePresets: () =>
+    apiRequest<{ presets: TimetablePreset[] }>('/api/timetable-presets'),
+
+  createTimetablePreset: (body: {
+    title: string;
+    description: string;
+    targetGrade?: string;
+    subjectIds: string[];
+    topicIds?: string[];
+    recommendedFrequency?: string;
+    status?: 'DRAFT' | 'PENDING_REVIEW' | 'PUBLISHED';
+    activities: Array<{
+      title: string;
+      activityType: LearningActivityType;
+      dayOffset: number;
+      timeOfDay: string;
+      durationMinutes: number;
+      recurrenceRule?: TimetableRecurrenceType;
+      subjectIds: string[];
+      topicIds?: string[];
+      difficultyDistribution?: Partial<Record<DifficultyTier, number>>;
+      filterCriteria?: ScheduleQuestionFilters;
+      fixedAssessmentId?: string | null;
+      fixedPaperId?: string | null;
+    }>;
+  }) =>
+    apiRequest<{ preset: TimetablePreset }>('/api/timetable-presets', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  transitionTimetablePreset: (
+    presetId: string,
+    action: 'submit_review' | 'publish' | 'archive'
+  ) =>
+    apiRequest<{ preset: TimetablePreset }>(
+      `/api/timetable-presets/${encodeURIComponent(presetId)}/transition`,
+      { method: 'POST', body: JSON.stringify({ action }) }
+    ),
+
+  previewPresetApplication: (
+    presetId: string,
+    body: {
+      studentId: string;
+      startDate: string;
+      endDate?: string;
+      timezone?: string;
+      exceptionDates?: string[];
+    }
+  ) =>
+    apiRequest<{
+      preset: TimetablePreset;
+      timezone: string;
+      occurrences: Array<{
+        activityId: string;
+        title: string;
+        activityType: LearningActivityType;
+        localDate: string;
+        timeOfDay: string;
+        durationMinutes: number;
+        startUtc: string;
+        endUtc: string;
+        eligibleCount: number;
+        warnings: string[];
+      }>;
+      conflicts: Array<{
+        conflictingSessionId: string;
+        conflictingTitle: string;
+        candidateStartUtc: string;
+        reason: string;
+      }>;
+    }>(`/api/timetable-presets/${encodeURIComponent(presetId)}/preview-apply`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  applyTimetablePreset: (
+    presetId: string,
+    body: {
+      studentId: string;
+      startDate: string;
+      endDate?: string;
+      timezone?: string;
+      customTitle?: string;
+      exceptionDates?: string[];
+      skipConflicts?: boolean;
+    }
+  ) =>
+    apiRequest<{
+      timetable: StudentTimetable;
+      sessions: ScheduledSessionRecord[];
+      skippedConflicts: number;
+    }>(`/api/timetable-presets/${encodeURIComponent(presetId)}/apply`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getStudentScheduleDashboard: (studentId: string) =>
+    apiRequest<{
+      studentId: string;
+      links: GuardianStudentLink[];
+      preferences: ReminderPreferenceRecord;
+      timetables: StudentTimetable[];
+      sessions: (ScheduledSessionRecord & {
+        countdown: {
+          phase: 'upcoming' | 'ready_now' | 'in_grace' | 'missed' | 'completed' | 'inactive';
+          secondsUntilStart: number;
+          secondsRemainingInWindow: number;
+          countdownLabel: string;
+        };
+      })[];
+      reminders: ReminderJobRecord[];
+      auditEvents: {
+        id: string;
+        eventType: string;
+        summary: string;
+        actorRole: string;
+        createdAt: string;
+      }[];
+      presets: TimetablePreset[];
+    }>(`/api/schedule/students/${encodeURIComponent(studentId)}/dashboard`),
+
+  previewCustomTimetable: (body: {
+    studentId: string;
+    title: string;
+    activityType: LearningActivityType;
+    timezone?: string;
+    startDate: string;
+    endDate?: string | null;
+    timeOfDay: string;
+    durationMinutes: number;
+    recurrenceType: TimetableRecurrenceType;
+    weekdays?: number[];
+    exceptionDates?: string[];
+    filterCriteria: ScheduleQuestionFilters;
+    fixedAssessmentId?: string | null;
+    fixedPaperId?: string | null;
+  }) =>
+    apiRequest<{
+      timezone: string;
+      occurrenceCount: number;
+      occurrences: { localDate: string; startUtc: string; endUtc: string }[];
+      conflicts: { conflictingTitle: string; reason: string }[];
+      questionAvailability: {
+        availableCount: number;
+        requestedCount: number;
+        insufficient: boolean;
+        warnings: string[];
+      };
+    }>('/api/timetables/preview', { method: 'POST', body: JSON.stringify(body) }),
+
+  createCustomTimetable: (body: {
+    studentId: string;
+    title: string;
+    description?: string;
+    activityType: LearningActivityType;
+    timezone?: string;
+    startDate: string;
+    endDate?: string | null;
+    timeOfDay: string;
+    durationMinutes: number;
+    gracePeriodMinutes?: number;
+    maxAttempts?: number;
+    recurrenceType: TimetableRecurrenceType;
+    weekdays?: number[];
+    exceptionDates?: string[];
+    filterCriteria: ScheduleQuestionFilters;
+    fixedAssessmentId?: string | null;
+    fixedPaperId?: string | null;
+    notes?: string;
+  }) =>
+    apiRequest<{ timetable: StudentTimetable; sessions: ScheduledSessionRecord[] }>(
+      '/api/timetables',
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  rescheduleScheduledSession: (
+    sessionId: string,
+    body: { newDate: string; newTimeOfDay: string; timezone?: string; durationMinutes?: number }
+  ) =>
+    apiRequest<{ session: ScheduledSessionRecord }>(
+      `/api/scheduled-sessions/${encodeURIComponent(sessionId)}/reschedule`,
+      { method: 'PATCH', body: JSON.stringify(body) }
+    ),
+
+  updateScheduledSessionStatus: (
+    sessionId: string,
+    action: 'pause' | 'resume' | 'cancel'
+  ) =>
+    apiRequest<{ session: ScheduledSessionRecord }>(
+      `/api/scheduled-sessions/${encodeURIComponent(sessionId)}/status`,
+      { method: 'PATCH', body: JSON.stringify({ action }) }
+    ),
+
+  startScheduledSession: (sessionId: string) =>
+    apiRequest<{
+      session: ScheduledSessionRecord;
+      launchMode: 'practice_questions' | 'fixed_assessment' | 'fixed_paper';
+      quizzes: QuizItem[];
+      fixedAssessmentId?: string | null;
+      fixedPaperId?: string | null;
+    }>(`/api/scheduled-sessions/${encodeURIComponent(sessionId)}/start`, {
+      method: 'POST',
+    }),
+
+  completeScheduledSession: (sessionId: string, linkedAttemptId?: string | null) =>
+    apiRequest<{ session: ScheduledSessionRecord }>(
+      `/api/scheduled-sessions/${encodeURIComponent(sessionId)}/complete`,
+      { method: 'POST', body: JSON.stringify({ linkedAttemptId }) }
+    ),
+
+  updateReminderPreferences: (
+    studentId: string,
+    body: {
+      leadTimesMinutes?: number[];
+      channels?: { inApp?: boolean; email?: boolean; whatsapp?: boolean };
+      dailyDigestEnabled?: boolean;
+    }
+  ) =>
+    apiRequest<{ preferences: ReminderPreferenceRecord }>(
+      `/api/reminder-preferences/${encodeURIComponent(studentId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    ),
 };
+
+export interface TotpEnrollmentSetup {
+  targetUserId: string;
+  targetUserName: string;
+  manualKey: string;
+  otpAuthUri: string;
+  qrDataUrl: string;
+  guardianAssisted: boolean;
+  status: 'PENDING_SETUP';
+}
 
 export interface StudentAssessmentListItem extends AssessmentRecord {
   myAttemptCount: number;

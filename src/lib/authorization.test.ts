@@ -7,8 +7,8 @@ import {
   filterAuthorizedInterventionCases,
   filterAuthorizedQuestions,
   type AuthorizationContext,
-} from './authorization';
-import type { InterventionCase, QuestionAttempt, QuizItem } from './types';
+} from './authorization.ts';
+import type { InterventionCase, QuestionAttempt, QuizItem } from './types.ts';
 
 function makeQuiz(id: string, subjectId: string): QuizItem {
   return {

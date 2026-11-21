@@ -27,17 +27,33 @@ import type {
   StudentTrajectory,
 } from '../lib/types';
 
+export interface ScheduledExamLaunch {
+  scheduledSessionId: string;
+  fixedPaperId?: string | null;
+  fixedAssessmentId?: string | null;
+}
+
 interface TimedExamHallProps {
   user: AuthUser;
+  scheduledLaunch?: ScheduledExamLaunch | null;
+  onConsumeScheduledLaunch?: () => void;
   onAttemptComplete: (user: AuthUser, trajectory: StudentTrajectory) => void;
 }
 
-export function TimedExamHall({ user, onAttemptComplete }: TimedExamHallProps) {
+export function TimedExamHall({
+  user,
+  scheduledLaunch,
+  onConsumeScheduledLaunch,
+  onAttemptComplete,
+}: TimedExamHallProps) {
   const [papers, setPapers] = useState<ExamPaper[]>([]);
   const [structuredExams, setStructuredExams] = useState<StudentAssessmentListItem[]>([]);
   const [levelFilter, setLevelFilter] = useState<string>('All');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [activeScheduledSessionId, setActiveScheduledSessionId] = useState<string | null>(
+    scheduledLaunch?.scheduledSessionId || null
+  );
 
   // Active timed exam state (supports both legacy ExamPaper & Enhancement 03 AssessmentRecord)
   const [activeSession, setActiveSession] = useState<{
@@ -98,6 +114,19 @@ export function TimedExamHall({ user, onAttemptComplete }: TimedExamHallProps) {
   useEffect(() => {
     loadAllExams();
   }, []);
+
+  useEffect(() => {
+    if (!scheduledLaunch) return;
+    setActiveScheduledSessionId(scheduledLaunch.scheduledSessionId);
+    if (scheduledLaunch.fixedAssessmentId) {
+      handleStartStructuredExam(scheduledLaunch.fixedAssessmentId);
+    } else if (scheduledLaunch.fixedPaperId) {
+      handleStartPaper(scheduledLaunch.fixedPaperId);
+    } else if (papers.length > 0) {
+      handleStartPaper(papers[0].id);
+    }
+    onConsumeScheduledLaunch?.();
+  }, [scheduledLaunch, papers.length]);
 
   const handleStartPaper = async (paperId: string) => {
     setErrorMsg(null);
@@ -226,7 +255,9 @@ export function TimedExamHall({ user, onAttemptComplete }: TimedExamHallProps) {
           answers,
           perQuestionDurationsMs: finalDurations,
           timedOut,
+          scheduledSessionId: activeScheduledSessionId || undefined,
         });
+        setActiveScheduledSessionId(null);
         setExamResult({
           attempt: res.attempt,
           trajectory: res.trajectory,
@@ -250,6 +281,12 @@ export function TimedExamHall({ user, onAttemptComplete }: TimedExamHallProps) {
           perQuestionDurationsMs: finalDurations,
           timedOut,
         });
+        if (activeScheduledSessionId) {
+          await api
+            .completeScheduledSession(activeScheduledSessionId, res.attempt.id)
+            .catch(() => {});
+          setActiveScheduledSessionId(null);
+        }
         setStructuredReview(res.review);
         setActiveSession(null);
         if (res.trajectory) onAttemptComplete(res.user, res.trajectory);
@@ -320,11 +357,17 @@ export function TimedExamHall({ user, onAttemptComplete }: TimedExamHallProps) {
                 <div className="p-4 rounded-2xl bg-[#F3F9FF] border border-[#DCEBFA]">
                   <div className="text-xs text-[#526A84]">Final Score</div>
                   <div className="text-2xl font-display font-extrabold text-[#158EE3] tabular-nums">
-                    {structuredReview.attempt.scorePercent ?? 0}%
+                    {structuredReview.attempt.scorePercent === null
+                      ? 'Pending'
+                      : `${structuredReview.attempt.scorePercent}%`}
                   </div>
                 </div>
                 <div className="p-4 rounded-2xl bg-[#EEF9EF] border border-[#C1E8C4]">
-                  <div className="text-xs text-[#526A84]">Awarded Marks</div>
+                  <div className="text-xs text-[#526A84]">
+                    {structuredReview.attempt.status === 'pending_manual_marking'
+                      ? 'Objective Auto Marks'
+                      : 'Awarded Marks'}
+                  </div>
                   <div className="text-2xl font-display font-extrabold text-[#2E7D32] tabular-nums">
                     {structuredReview.attempt.totalAwardedMarks}/{structuredReview.attempt.maxMarks}
                   </div>

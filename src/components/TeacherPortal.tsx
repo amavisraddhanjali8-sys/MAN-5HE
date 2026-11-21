@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, FileText, Lock } from 'lucide-react';
-import { AuthUser } from '../lib/api';
+import { BookOpen, Calendar, FileText, Lock, Users } from 'lucide-react';
+import { api, AuthUser } from '../lib/api';
 import type { SubjectCategory, SubtopicNode, TopicNode } from '../lib/types';
 import { AssessmentBuilderWorkspace } from './AssessmentBuilderWorkspace';
 import { InterventionWorkspace } from './InterventionWorkspace';
@@ -8,6 +8,7 @@ import { KnowledgePublishingConsole } from './KnowledgePublishingConsole';
 import { QuestionBankManager } from './QuestionBankManager';
 import { QuestionReviewDrawer } from './QuestionReviewDrawer';
 import { ScopedAnalyticsView } from './ScopedAnalyticsView';
+import { TimetablePresetManager } from './TimetablePresetManager';
 
 interface TeacherPortalProps {
   user: AuthUser;
@@ -35,15 +36,35 @@ export function TeacherPortal({
   const authorizedTopics = topics.filter((t) => assignedIds.includes(t.subjectId));
   const authorizedSubtopics = subtopics.filter((st) => assignedIds.includes(st.subjectId));
 
-  const [questionTab, setQuestionTab] = useState<'bank' | 'assessments'>('bank');
+  const [questionTab, setQuestionTab] = useState<'bank' | 'assessments' | 'presets'>('bank');
   const [inspectedQuestionId, setInspectedQuestionId] = useState<string | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialCaseId || null);
+  const [parentSupportSummaries, setParentSupportSummaries] = useState<
+    {
+      reportId: string;
+      studentId: string;
+      studentName: string;
+      assessmentTitle: string;
+      scorePercent: number | null;
+      generatedAt: string;
+      needsAttentionTopics: string[];
+    }[]
+  >([]);
 
   useEffect(() => {
     if (initialCaseId) {
       setSelectedCaseId(initialCaseId);
     }
   }, [initialCaseId]);
+
+  useEffect(() => {
+    if (activeSection === 'overview' && assignedIds.length > 0) {
+      api
+        .getTeacherParentSupportInsights()
+        .then((res) => setParentSupportSummaries(res.recentParentSupportSummaries))
+        .catch(() => {});
+    }
+  }, [activeSection, assignedIds.length]);
 
   if (authorizedSubjects.length === 0) {
     return (
@@ -93,23 +114,57 @@ export function TeacherPortal({
       </div>
 
       {activeSection === 'overview' && (
-        <ScopedAnalyticsView
-          role="teacher"
-          subjects={authorizedSubjects}
-          topics={authorizedTopics}
-          subtopics={authorizedSubtopics}
-          onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
-          onOpenInterventions={() => onNavigateSection('interventions')}
-        />
+        <div className="space-y-6">
+          <ScopedAnalyticsView
+            role="teacher"
+            subjects={authorizedSubjects}
+            topics={authorizedTopics}
+            subtopics={authorizedSubtopics}
+            onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
+            onOpenInterventions={() => onNavigateSection('interventions')}
+          />
+
+          {parentSupportSummaries.length > 0 && (
+            <div className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-3">
+              <div className="flex items-center gap-2 pb-2 border-b border-[#E5F0FA]">
+                <Users className="w-4 h-4 text-[#158EE3]" />
+                <h2 className="text-base font-display font-bold text-[#0F2942]">
+                  Recent Home Parent-Support Topics (Assigned Subjects)
+                </h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                {parentSupportSummaries.slice(0, 6).map((sum) => (
+                  <div
+                    key={sum.reportId}
+                    className="p-3.5 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-[#0F2942]">{sum.studentName}</span>
+                      <span className="font-bold text-[#158EE3] tabular-nums">
+                        {sum.scorePercent === null ? 'Pending' : `${sum.scorePercent}%`}
+                      </span>
+                    </div>
+                    <div className="text-[#476481]">{sum.assessmentTitle}</div>
+                    {sum.needsAttentionTopics.length > 0 && (
+                      <div className="text-[11px] text-[#9A5B00]">
+                        Home focus: {sum.needsAttentionTopics.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {activeSection === 'questions' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border border-[#DCEBFA] p-3">
             <div className="text-xs font-semibold text-[#526A84] px-2">
-              Author &amp; manage questions, practice sessions, and mock papers within your authorized subjects
+              Author &amp; manage questions, practice sessions, mock papers, and timetable presets within your authorized subjects
             </div>
-            <div className="flex items-center gap-1 p-1 bg-[#F3F9FF] rounded-xl border border-[#DCEBFA]">
+            <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F3F9FF] rounded-xl border border-[#DCEBFA]">
               <button
                 type="button"
                 data-testid="teacher-tab-bank"
@@ -136,6 +191,19 @@ export function TeacherPortal({
                 <FileText className="w-3.5 h-3.5" />
                 <span>Practice &amp; Mock Papers</span>
               </button>
+              <button
+                type="button"
+                data-testid="teacher-tab-presets"
+                onClick={() => setQuestionTab('presets')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  questionTab === 'presets'
+                    ? 'bg-[#2E7D32] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Timetable Presets</span>
+              </button>
             </div>
           </div>
 
@@ -148,8 +216,15 @@ export function TeacherPortal({
               subtopics={authorizedSubtopics}
               onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
             />
-          ) : (
+          ) : questionTab === 'assessments' ? (
             <AssessmentBuilderWorkspace
+              role="teacher"
+              user={user}
+              subjects={authorizedSubjects}
+              topics={authorizedTopics}
+            />
+          ) : (
+            <TimetablePresetManager
               role="teacher"
               user={user}
               subjects={authorizedSubjects}

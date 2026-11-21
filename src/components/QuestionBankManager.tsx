@@ -113,6 +113,7 @@ export function QuestionBankManager({
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [difficultyFilter, setDifficultyFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [skillFilter, setSkillFilter] = useState<string>('All');
   const [perfFilter, setPerfFilter] = useState<string>('All');
   const [search, setSearch] = useState<string>('');
   const [page, setPage] = useState<number>(1);
@@ -120,6 +121,7 @@ export function QuestionBankManager({
   const [questions, setQuestions] = useState<QuestionWithStats[]>([]);
   const [totalVirtualPool, setTotalVirtualPool] = useState(500000);
   const [curatedCount, setCuratedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -185,9 +187,12 @@ export function QuestionBankManager({
   } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // Inline Reject Prompt & Review Audit Expansion
+  // Inline Reject Prompt, Retire+Replacement Prompt & Review Audit Expansion
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState('');
+  const [retiringId, setRetiringId] = useState<string | null>(null);
+  const [replaceWithId, setReplaceWithId] = useState('');
+  const [retireNote, setRetireNote] = useState('');
   const [expandedReviewQId, setExpandedReviewQId] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<QuestionReviewActionRecord[]>([]);
 
@@ -217,6 +222,7 @@ export function QuestionBankManager({
         questionType: typeFilter,
         difficulty: difficultyFilter,
         approvalStatus: statusFilter,
+        cognitiveSkill: skillFilter,
         performanceFlag: perfFilter,
         search,
         page,
@@ -225,6 +231,7 @@ export function QuestionBankManager({
       setQuestions(res.quizzes);
       setTotalVirtualPool(res.totalVirtualPool);
       setCuratedCount(res.curatedCount);
+      setTotalCount(res.totalCount ?? res.quizzes.length);
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -243,6 +250,7 @@ export function QuestionBankManager({
     typeFilter,
     difficultyFilter,
     statusFilter,
+    skillFilter,
     perfFilter,
     search,
     page,
@@ -483,15 +491,23 @@ export function QuestionBankManager({
   const handleTransitionStatus = async (
     qId: string,
     toStatus: QuestionApprovalStatus,
-    notes?: string
+    notes?: string,
+    replacedByQuestionId?: string
   ) => {
     setErrorMsg(null);
     setStatusMsg(null);
     try {
-      const res = await api.transitionQuestionStatus(qId, { toStatus, notes });
+      const res = await api.transitionQuestionStatus(qId, {
+        toStatus,
+        notes,
+        replacedByQuestionId: replacedByQuestionId || undefined,
+      });
       setStatusMsg(`Question ${res.quiz.id} transitioned to ${res.quiz.approvalStatus}.`);
       setRejectingId(null);
       setRejectNote('');
+      setRetiringId(null);
+      setReplaceWithId('');
+      setRetireNote('');
       await loadQuestions();
       onQuestionsChanged?.();
     } catch (err) {
@@ -770,7 +786,10 @@ export function QuestionBankManager({
             <select
               aria-label="Filter by grade"
               value={gradeFilter}
-              onChange={(e) => setGradeFilter(e.target.value)}
+              onChange={(e) => {
+                setGradeFilter(e.target.value);
+                setPage(1);
+              }}
               className="px-2.5 py-1.5 bg-[#F8FBFF] border border-[#CBE2FA] rounded-lg font-medium text-[#0F2942]"
             >
               <option value="All">All Grades</option>
@@ -778,9 +797,29 @@ export function QuestionBankManager({
               <option value="Grade 4">Grade 4</option>
             </select>
             <select
+              aria-label="Filter by cognitive skill"
+              value={skillFilter}
+              onChange={(e) => {
+                setSkillFilter(e.target.value);
+                setPage(1);
+              }}
+              className="px-2.5 py-1.5 bg-[#F8FBFF] border border-[#CBE2FA] rounded-lg font-medium text-[#0F2942]"
+            >
+              <option value="All">All Cognitive Skills</option>
+              <option value="Recall">Recall</option>
+              <option value="Application">Application</option>
+              <option value="Pattern">Pattern Recognition</option>
+              <option value="Reasoning">Multi-step Reasoning</option>
+              <option value="Spatial">Spatial / Geometric</option>
+              <option value="Comprehension">Comprehension</option>
+            </select>
+            <select
               aria-label="Filter by performance flag"
               value={perfFilter}
-              onChange={(e) => setPerfFilter(e.target.value)}
+              onChange={(e) => {
+                setPerfFilter(e.target.value);
+                setPage(1);
+              }}
               className="px-2.5 py-1.5 bg-[#F8FBFF] border border-[#CBE2FA] rounded-lg font-medium text-[#0F2942]"
             >
               <option value="All">All Attempt Flags</option>
@@ -1458,6 +1497,12 @@ export function QuestionBankManager({
                         <strong>Rejection note:</strong> {q.rejectionReason}
                       </div>
                     )}
+                    {qStatus === 'RETIRED' && q.replacedByQuestionId && (
+                      <div className="text-xs text-[#0E4F80] bg-[#EBF5FF] border border-[#99CAFA] rounded-lg px-2.5 py-1">
+                        <strong>Replaced by:</strong>{' '}
+                        <span className="font-mono font-bold">{q.replacedByQuestionId}</span>
+                      </div>
+                    )}
 
                     {q.stats && (
                       <div className="flex flex-wrap items-center gap-4 pt-1 text-[11px] tabular-nums text-[#476481]">
@@ -1578,10 +1623,14 @@ export function QuestionBankManager({
                       (qStatus === 'ACTIVE' || qStatus === 'APPROVED') && (
                         <button
                           type="button"
-                          onClick={() => handleTransitionStatus(q.id, 'RETIRED', 'Retired from bank')}
+                          onClick={() => {
+                            setRetiringId(q.id);
+                            setReplaceWithId('');
+                            setRetireNote('');
+                          }}
                           className="px-2.5 py-1.5 text-[11px] font-semibold text-[#526A84] bg-white border border-[#DCEBFA] rounded-lg hover:text-[#9A2F09] whitespace-nowrap"
                         >
-                          Retire
+                          Retire / Replace
                         </button>
                       )}
 
@@ -1654,6 +1703,61 @@ export function QuestionBankManager({
                   </div>
                 )}
 
+                {/* Retire & Optional Replacement inline input */}
+                {retiringId === q.id && (
+                  <div className="p-3 rounded-xl bg-[#F3F9FF] border border-[#99CAFA] flex flex-wrap items-center gap-2 text-xs">
+                    <select
+                      aria-label="Replacement question"
+                      value={replaceWithId}
+                      onChange={(e) => setReplaceWithId(e.target.value)}
+                      className="px-2.5 py-1.5 bg-white border border-[#CBE2FA] rounded-lg max-w-[260px]"
+                    >
+                      <option value="">No direct replacement question</option>
+                      {questions
+                        .filter(
+                          (cand) =>
+                            cand.id !== q.id &&
+                            cand.source === 'curated' &&
+                            cand.subjectId === q.subjectId &&
+                            cand.approvalStatus !== 'RETIRED'
+                        )
+                        .map((cand) => (
+                          <option key={cand.id} value={cand.id}>
+                            Replace with {cand.id}: {cand.questionSi.slice(0, 36)}
+                          </option>
+                        ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={retireNote}
+                      onChange={(e) => setRetireNote(e.target.value)}
+                      placeholder="Retirement reason (optional)"
+                      className="flex-1 min-w-[180px] px-3 py-1.5 bg-white border border-[#CBE2FA] rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleTransitionStatus(
+                          q.id,
+                          'RETIRED',
+                          retireNote || 'Retired from active bank',
+                          replaceWithId
+                        )
+                      }
+                      className="px-3 py-1.5 font-bold text-white bg-[#0F2942] rounded-lg"
+                    >
+                      Confirm Retire
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRetiringId(null)}
+                      className="px-2.5 py-1.5 text-[#526A84] bg-white rounded-lg border border-[#DCEBFA]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
                 {/* Expandable Review Audit Trail */}
                 {expandedReviewQId === q.id && (
                   <div className="p-3 rounded-xl bg-white border border-[#CBE2FA] space-y-1.5 text-xs">
@@ -1680,7 +1784,12 @@ export function QuestionBankManager({
 
         {/* Pagination */}
         <div className="flex items-center justify-between pt-2 text-xs text-[#526A84]">
-          <span>Page {page}</span>
+          <span className="tabular-nums">
+            Page {page}
+            {sourceFilter !== 'pool' && totalCount > 0
+              ? ` · Showing ${(page - 1) * 20 + 1}–${Math.min(page * 20, totalCount)} of ${totalCount}`
+              : ''}
+          </span>
           <div className="flex gap-2">
             <button
               type="button"
@@ -1692,7 +1801,7 @@ export function QuestionBankManager({
             </button>
             <button
               type="button"
-              disabled={questions.length < 20}
+              disabled={sourceFilter === 'pool' ? questions.length < 20 : page * 20 >= totalCount}
               onClick={() => setPage((p) => p + 1)}
               className="px-3 py-1.5 bg-[#F8FBFF] border border-[#DCEBFA] rounded-lg font-semibold disabled:opacity-40"
             >

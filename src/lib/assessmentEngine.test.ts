@@ -326,5 +326,19 @@ describe('assessmentEngine — RBAC transitions, selection engine, grading & bul
     });
     assert.equal(jsonParsed.items.length, 1);
     assert.equal(jsonParsed.errors.length, 1);
+
+    const pipeCsvParsed = parseBulkQuestionsPayload({
+      format: 'csv',
+      content: [
+        'subjectId,questionType,questionSi,options,correctIndex,acceptedAnswers,requiresManualReview',
+        'subj-math,mcq,"Pipe options test","10|20|30|40",2,"30",false',
+        'subj-math,short_answer,"Written rubric only","",0,"",true',
+        'subj-math,numerical,"Missing numerical key","",0,"",false',
+      ].join('\n'),
+    });
+    assert.equal(pipeCsvParsed.items.length, 2);
+    assert.deepEqual(pipeCsvParsed.items[0].options, ['10', '20', '30', '40']);
+    assert.equal(pipeCsvParsed.items[1].markingRule?.requiresManualReview, true);
+    assert.equal(pipeCsvParsed.errors.length, 1);
   });
 });

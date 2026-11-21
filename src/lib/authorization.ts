@@ -44,7 +44,7 @@ export function getAuthorizedSubjectIds(
   ctx: AuthorizationContext,
   allSubjects: SubjectCategory[]
 ): string[] {
-  if (ctx.role === 'admin' || ctx.role === 'student') {
+  if (ctx.role === 'admin' || ctx.role === 'student' || ctx.role === 'parent') {
     return allSubjects.filter((s) => s.active).map((s) => s.id);
   }
   const activeSet = new Set(allSubjects.filter((s) => s.active).map((s) => s.id));
@@ -57,6 +57,7 @@ export function canAccessQuestion(
 ): boolean {
   if (ctx.role === 'admin') return true;
   if (ctx.role === 'student') return true;
+  if (ctx.role !== 'teacher') return false;
   const currentSubjectId = resolveQuestionSubjectId(question);
   return ctx.assignedSubjectIds.includes(currentSubjectId);
 }
@@ -66,6 +67,7 @@ export function filterAuthorizedQuestions<T extends Pick<QuizItem, 'subjectId' |
   ctx: AuthorizationContext
 ): T[] {
   if (ctx.role === 'admin' || ctx.role === 'student') return questions;
+  if (ctx.role !== 'teacher') return [];
   const allowed = new Set(ctx.assignedSubjectIds);
   return questions.filter((q) => allowed.has(resolveQuestionSubjectId(q)));
 }
@@ -79,6 +81,7 @@ export function filterAuthorizedAttempts(
   if (ctx.role === 'student') {
     return attempts.filter((a) => a.studentId === ctx.userId);
   }
+  if (ctx.role !== 'teacher') return [];
   const allowed = new Set(ctx.assignedSubjectIds);
   return attempts.filter((a) => {
     // Follow the question's current subject authorization scope if moved, otherwise attempt's subjectId
@@ -96,6 +99,7 @@ export function filterAuthorizedInterventionCases(
   if (ctx.role === 'student') {
     return cases.filter((c) => c.studentId === ctx.userId);
   }
+  if (ctx.role !== 'teacher') return [];
   const allowed = new Set(ctx.assignedSubjectIds);
   return cases.filter((c) => {
     const effectiveSubjectId = questionSubjectLookup?.get(c.questionId) || c.subjectId;

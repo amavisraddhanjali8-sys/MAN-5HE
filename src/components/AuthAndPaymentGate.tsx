@@ -15,7 +15,7 @@ import type { EmailLog, InvoiceRecord, PaymentPlan } from '../lib/types';
 import { Man5heLogo, MascotAvatar } from './BrandVisuals';
 
 interface AuthAndPaymentGateProps {
-  onAuthenticated: (user: AuthUser) => void;
+  onAuthenticated: (user: AuthUser, opts?: { totpEnrollmentRequired?: boolean }) => void;
   existingUser?: AuthUser | null;
   paymentModeOnly?: boolean;
   onPaymentComplete?: (user: AuthUser, invoice: InvoiceRecord) => void;
@@ -29,7 +29,7 @@ export function AuthAndPaymentGate({
   onPaymentComplete,
   onBackToDashboard,
 }: AuthAndPaymentGateProps) {
-  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+  const [authTab, setAuthTab] = useState<'login' | 'register' | 'recover_pw' | 'recover_totp'>('login');
 
   // CAPTCHA + Robot check
   const [captchaToken, setCaptchaToken] = useState('');
@@ -42,8 +42,33 @@ export function AuthAndPaymentGate({
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginChallengeId, setLoginChallengeId] = useState<string | null>(null);
+  const [loginStep2Flags, setLoginStep2Flags] = useState<{
+    requireEmailOtp: boolean;
+    requireTotp: boolean;
+  }>({ requireEmailOtp: true, requireTotp: true });
   const [loginEmailOtp, setLoginEmailOtp] = useState('');
   const [loginTotpCode, setLoginTotpCode] = useState('');
+
+  // Password Recovery (Email / WhatsApp) state
+  const [recIdentifier, setRecIdentifier] = useState('');
+  const [recChannel, setRecChannel] = useState<'email' | 'whatsapp'>('email');
+  const [recChallengeId, setRecChallengeId] = useState<string | null>(null);
+  const [recOtpCode, setRecOtpCode] = useState('');
+  const [recResetToken, setRecResetToken] = useState<string | null>(null);
+  const [recRequiresTotp, setRecRequiresTotp] = useState(false);
+  const [recTotpOrBackup, setRecTotpOrBackup] = useState('');
+  const [recNewPassword, setRecNewPassword] = useState('');
+
+  // Authenticator Recovery (Backup code / Admin request) state
+  const [authRecIdentifier, setAuthRecIdentifier] = useState('');
+  const [authRecPassword, setAuthRecPassword] = useState('');
+  const [authRecMode, setAuthRecMode] = useState<'backup_code' | 'admin_request'>('backup_code');
+  const [authRecBackupCode, setAuthRecBackupCode] = useState('');
+  const [authRecReason, setAuthRecReason] = useState('');
+  const [authRecSetupQr, setAuthRecSetupQr] = useState<{
+    qrDataUrl: string;
+    manualKey: string;
+  } | null>(null);
 
   // Registration state
   const [regUserIdCode, setRegUserIdCode] = useState('M5-2026-108');
@@ -145,17 +170,21 @@ export function AuthAndPaymentGate({
     return () => window.clearInterval(interval);
   }, [demoHelper?.email]);
 
-  const handleAutofillDemo = async (role: 'student' | 'teacher' | 'admin') => {
+  const handleAutofillDemo = async (role: 'student' | 'parent' | 'teacher' | 'admin') => {
     setErrorMsg(null);
     const id =
       role === 'student'
         ? 'sayuri@man5he.lk'
+        : role === 'parent'
+        ? 'parent@man5he.lk'
         : role === 'teacher'
         ? 'teacher.math@man5he.lk'
         : 'admin@man5he.lk';
     const pw =
       role === 'student'
         ? 'Sayuri@2026'
+        : role === 'parent'
+        ? 'Parent@2026'
         : role === 'teacher'
         ? 'Teacher@2026'
         : 'Admin@2026';
@@ -165,7 +194,7 @@ export function AuthAndPaymentGate({
     setLoginChallengeId(null);
     setInfoMsg(
       mfaConfig.mfaRequired
-        ? `Loaded ${role} credentials. Solve the SVG CAPTCHA, tick the robot check, and continue to Email OTP + Google Authenticator.`
+        ? `Loaded ${role} credentials. Solve the SVG CAPTCHA, tick the robot check, and continue to verification.`
         : `Loaded ${role} credentials. Solve the SVG CAPTCHA, tick the robot check, and click Sign In.`
     );
     if (mfaConfig.enableTotp) {
@@ -196,23 +225,34 @@ export function AuthAndPaymentGate({
       });
       if (!res.mfaRequired && res.token && res.user) {
         setStoredToken(res.token);
-        onAuthenticated(res.user);
+        onAuthenticated(res.user, { totpEnrollmentRequired: res.totpEnrollmentRequired });
         return;
       }
       if (res.loginChallengeId) {
         setLoginChallengeId(res.loginChallengeId);
+        setLoginStep2Flags({
+          requireEmailOtp: res.requireEmailOtp !== false,
+          requireTotp: res.requireTotp !== false,
+        });
         setInfoMsg(res.message || 'Enter your Email OTP and Google Authenticator code.');
-        await refreshSandboxInbox(res.maskedEmail);
-        if (
-          mfaConfig.enableTotp &&
-          ['sayuri@man5he.lk', 'm5-2026-001', 'admin@man5he.lk', 'm5-admin-01'].includes(
-            loginIdentifier.trim().toLowerCase()
-          )
-        ) {
-          const helper = await api.getDemoTotpHelper(loginIdentifier.trim());
-          setDemoHelper(helper);
+        if (res.requireEmailOtp !== false) {
+          await refreshSandboxInbox(res.maskedEmail);
+          setInboxOpen(true);
         }
-        setInboxOpen(true);
+        if (
+          (mfaConfig.enableTotp || res.requireTotp) &&
+          [
+            'sayuri@man5he.lk',
+            'm5-2026-001',
+            'parent@man5he.lk',
+            'm5-par-01',
+            'admin@man5he.lk',
+            'm5-admin-01',
+          ].includes(loginIdentifier.trim().toLowerCase())
+        ) {
+          const helper = await api.getDemoTotpHelper(loginIdentifier.trim()).catch(() => null);
+          if (helper) setDemoHelper(helper);
+        }
       }
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -234,7 +274,114 @@ export function AuthAndPaymentGate({
         totpCode: loginTotpCode,
       });
       setStoredToken(res.token);
-      onAuthenticated(res.user);
+      onAuthenticated(res.user, { totpEnrollmentRequired: res.totpEnrollmentRequired });
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRequestRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setBusy(true);
+    try {
+      const res = await api.requestPasswordRecovery({
+        identifier: recIdentifier,
+        channel: recChannel,
+        resendChallengeId: recChallengeId || undefined,
+      });
+      setRecChallengeId(res.challengeId);
+      setInfoMsg(res.message);
+      if (recChannel === 'email') {
+        await refreshSandboxInbox();
+        setInboxOpen(true);
+      }
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleVerifyRecoveryOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recChallengeId) return;
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setBusy(true);
+    try {
+      const isBackup = recTotpOrBackup.trim().toUpperCase().startsWith('M5RC-');
+      const res = await api.verifyRecoveryChallenge({
+        challengeId: recChallengeId,
+        identifier: recIdentifier,
+        otpCode: recOtpCode,
+        totpCode: !isBackup && recTotpOrBackup ? recTotpOrBackup : undefined,
+        backupCode: isBackup ? recTotpOrBackup : undefined,
+      });
+      setRecResetToken(res.resetToken);
+      setRecRequiresTotp(res.requiresTotp);
+      setInfoMsg(
+        res.requiresTotp
+          ? 'Recovery code verified. Enter your Google Authenticator code (or backup code) and new password.'
+          : 'Recovery code verified. Choose your new strong password.'
+      );
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCompleteRecoveryReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recResetToken) return;
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setBusy(true);
+    try {
+      const isBackup = recTotpOrBackup.trim().toUpperCase().startsWith('M5RC-');
+      const res = await api.completePasswordReset({
+        resetToken: recResetToken,
+        newPassword: recNewPassword,
+        totpCode: !isBackup && recTotpOrBackup ? recTotpOrBackup : undefined,
+        backupCode: isBackup ? recTotpOrBackup : undefined,
+      });
+      setRecChallengeId(null);
+      setRecResetToken(null);
+      setRecOtpCode('');
+      setRecNewPassword('');
+      setRecTotpOrBackup('');
+      setAuthTab('login');
+      setInfoMsg(
+        `Password updated successfully (${res.sessionsRevoked} session(s) revoked). Sign in with your new password.`
+      );
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRecoverAuthenticator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setBusy(true);
+    try {
+      const res = await api.recoverAuthenticator({
+        identifier: authRecIdentifier,
+        password: authRecPassword,
+        mode: authRecMode,
+        backupCode: authRecMode === 'backup_code' ? authRecBackupCode : undefined,
+        reason: authRecMode === 'admin_request' ? authRecReason : undefined,
+      });
+      if (res.setup) {
+        setAuthRecSetupQr({ qrDataUrl: res.setup.qrDataUrl, manualKey: res.setup.manualKey });
+      }
+      setInfoMsg(res.message);
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -261,7 +408,7 @@ export function AuthAndPaymentGate({
       });
       if (!res.mfaRequired && res.token && res.user) {
         setStoredToken(res.token);
-        onAuthenticated(res.user);
+        onAuthenticated(res.user, { totpEnrollmentRequired: res.totpEnrollmentRequired });
         return;
       }
       if (res.registrationId && res.totpSecret && res.qrDataUrl) {
@@ -294,7 +441,7 @@ export function AuthAndPaymentGate({
         totpCode: regTotpCode,
       });
       setStoredToken(res.token);
-      onAuthenticated(res.user);
+      onAuthenticated(res.user, { totpEnrollmentRequired: res.totpEnrollmentRequired });
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -692,7 +839,7 @@ export function AuthAndPaymentGate({
                   ? 'Sandbox Demo Accounts (Enforces Full CAPTCHA + Email OTP + TOTP):'
                   : 'Demo Accounts (Password + SVG CAPTCHA + Robot Check · Authenticator Disabled):'}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="p-2.5 rounded-xl bg-[#F3F9FF] border border-[#CBE2FA] space-y-1">
                   <div className="font-bold text-[#0F2942]">Student · Sayuri</div>
                   <div className="font-mono text-[10px] text-[#476481] truncate">
@@ -705,6 +852,20 @@ export function AuthAndPaymentGate({
                     className="mt-1 w-full px-2.5 py-1.5 text-[11px] font-semibold text-white bg-[#158EE3] rounded-lg hover:bg-[#1176BE] transition-colors"
                   >
                     Fill Student
+                  </button>
+                </div>
+                <div className="p-2.5 rounded-xl bg-[#F5F3FF] border border-[#DDD6FE] space-y-1">
+                  <div className="font-bold text-[#0F2942]">Parent · Malini</div>
+                  <div className="font-mono text-[10px] text-[#476481] truncate">
+                    parent@man5he.lk
+                  </div>
+                  <div className="font-mono text-[10px] text-[#476481]">Parent@2026</div>
+                  <button
+                    type="button"
+                    onClick={() => handleAutofillDemo('parent')}
+                    className="mt-1 w-full px-2.5 py-1.5 text-[11px] font-semibold text-white bg-[#6D28D9] rounded-lg hover:bg-[#5B21B6] transition-colors"
+                  >
+                    Fill Parent
                   </button>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[#EEF9EF] border border-[#B7E1BA] space-y-1">
@@ -920,7 +1081,7 @@ export function AuthAndPaymentGate({
                 <button
                   type="submit"
                   disabled={busy}
-                  className="w-full py-3 px-5 text-sm font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl transition-colors flex items-center justify-center gap-2"
+                    className="w-full py-3 px-5 text-sm font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
                   <Lock className="w-4 h-4" />
                   <span>
@@ -931,6 +1092,31 @@ export function AuthAndPaymentGate({
                       : 'Verify CAPTCHA & Sign In'}
                   </span>
                 </button>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthTab('recover_pw');
+                      setErrorMsg(null);
+                      setInfoMsg(null);
+                    }}
+                    className="font-semibold text-[#158EE3] hover:underline"
+                  >
+                    Forgot Password? (Email / WhatsApp)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthTab('recover_totp');
+                      setErrorMsg(null);
+                      setInfoMsg(null);
+                    }}
+                    className="font-semibold text-[#476481] hover:text-[#0F2942] hover:underline"
+                  >
+                    Lost Google Authenticator?
+                  </button>
+                </div>
               </form>
             )}
 
@@ -938,39 +1124,47 @@ export function AuthAndPaymentGate({
             {authTab === 'login' && loginChallengeId && (
               <form onSubmit={handleLoginStep2} className="mt-5 space-y-4">
                 <div className="p-4 rounded-2xl bg-[#F3F9FF] border border-[#CBE2FA] text-sm text-[#0F2942]">
-                  Step 2 of 2: Enter the 6-digit <strong>Email Login Code</strong> dispatched to your inbox AND your 6-digit <strong>Google Authenticator TOTP</strong> code.
+                  Step 2 of 2:{' '}
+                  {loginStep2Flags.requireEmailOtp && loginStep2Flags.requireTotp
+                    ? 'Enter the 6-digit Email Login Code AND your 6-digit Google Authenticator (or backup) code.'
+                    : loginStep2Flags.requireTotp
+                    ? 'Enter your 6-digit Google Authenticator code (or a single-use M5RC- backup code).'
+                    : 'Enter the 6-digit Email Login Code dispatched to your inbox.'}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="login-email-otp" className="block text-xs font-semibold text-[#476481] mb-1.5">
-                      Email Verification Code
-                    </label>
-                    <input
-                      id="login-email-otp"
-                      type="text"
-                      inputMode="numeric"
-                      value={loginEmailOtp}
-                      onChange={(e) => setLoginEmailOtp(e.target.value)}
-                      placeholder="6-digit Email OTP"
-                      className="w-full px-3.5 py-2.5 text-sm font-mono bg-white border border-[#CBE2FA] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#158EE3]"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="login-totp" className="block text-xs font-semibold text-[#476481] mb-1.5">
-                      Google Authenticator Code
-                    </label>
-                    <input
-                      id="login-totp"
-                      type="text"
-                      inputMode="numeric"
-                      value={loginTotpCode}
-                      onChange={(e) => setLoginTotpCode(e.target.value)}
-                      placeholder="6-digit TOTP"
-                      className="w-full px-3.5 py-2.5 text-sm font-mono bg-white border border-[#CBE2FA] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#158EE3]"
-                      required
-                    />
-                  </div>
+                  {loginStep2Flags.requireEmailOtp && (
+                    <div>
+                      <label htmlFor="login-email-otp" className="block text-xs font-semibold text-[#476481] mb-1.5">
+                        Email Verification Code
+                      </label>
+                      <input
+                        id="login-email-otp"
+                        type="text"
+                        inputMode="numeric"
+                        value={loginEmailOtp}
+                        onChange={(e) => setLoginEmailOtp(e.target.value)}
+                        placeholder="6-digit Email OTP"
+                        className="w-full px-3.5 py-2.5 text-sm font-mono bg-white border border-[#CBE2FA] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#158EE3]"
+                        required
+                      />
+                    </div>
+                  )}
+                  {loginStep2Flags.requireTotp && (
+                    <div>
+                      <label htmlFor="login-totp" className="block text-xs font-semibold text-[#476481] mb-1.5">
+                        Google Authenticator or Backup Code
+                      </label>
+                      <input
+                        id="login-totp"
+                        type="text"
+                        value={loginTotpCode}
+                        onChange={(e) => setLoginTotpCode(e.target.value)}
+                        placeholder="6-digit TOTP or M5RC-XXXX-XXXX"
+                        className="w-full px-3.5 py-2.5 text-sm font-mono bg-white border border-[#CBE2FA] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#158EE3]"
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <button
@@ -990,6 +1184,282 @@ export function AuthAndPaymentGate({
                   </button>
                 </div>
               </form>
+            )}
+
+            {/* FORGOT PASSWORD RECOVERY (EMAIL OR WHATSAPP) */}
+            {authTab === 'recover_pw' && (
+              <div className="mt-5 space-y-4">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#E5F0FA]">
+                  <div>
+                    <h3 className="text-base font-display font-bold text-[#0F2942]">
+                      Account Password Recovery
+                    </h3>
+                    <p className="text-xs text-[#526A84]">
+                      Codes are dispatched exclusively to your verified registered Email or WhatsApp contact.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthTab('login');
+                      setRecChallengeId(null);
+                      setRecResetToken(null);
+                    }}
+                    className="text-xs font-semibold text-[#158EE3] hover:underline"
+                  >
+                    Back to Login
+                  </button>
+                </div>
+
+                {!recChallengeId && !recResetToken && (
+                  <form onSubmit={handleRequestRecovery} className="space-y-3 text-xs">
+                    <div>
+                      <label htmlFor="rec-id" className="block font-semibold text-[#476481] mb-1">
+                        Username, Student/Parent/Teacher ID, or Registered Email
+                      </label>
+                      <input
+                        id="rec-id"
+                        type="text"
+                        value={recIdentifier}
+                        onChange={(e) => setRecIdentifier(e.target.value)}
+                        placeholder="e.g. sayuri@man5he.lk or M5-2026-001"
+                        className="w-full px-3.5 py-2.5 text-sm bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setRecChannel('email')}
+                        className={`py-2.5 px-3 rounded-xl border font-bold ${
+                          recChannel === 'email'
+                            ? 'bg-[#EBF5FF] border-[#158EE3] text-[#158EE3]'
+                            : 'bg-white border-[#DCEBFA] text-[#526A84]'
+                        }`}
+                      >
+                        Verified Email OTP
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRecChannel('whatsapp')}
+                        className={`py-2.5 px-3 rounded-xl border font-bold ${
+                          recChannel === 'whatsapp'
+                            ? 'bg-[#EEF9EF] border-[#2E7D32] text-[#1E6323]'
+                            : 'bg-white border-[#DCEBFA] text-[#526A84]'
+                        }`}
+                      >
+                        Verified WhatsApp OTP
+                      </button>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="w-full py-2.5 px-4 text-sm font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl"
+                    >
+                      {busy ? 'Dispatching Code...' : `Send ${recChannel === 'email' ? 'Email' : 'WhatsApp'} Recovery Code`}
+                    </button>
+                  </form>
+                )}
+
+                {recChallengeId && !recResetToken && (
+                  <form onSubmit={handleVerifyRecoveryOtp} className="space-y-3 text-xs">
+                    <div>
+                      <label htmlFor="rec-otp" className="block font-semibold text-[#476481] mb-1">
+                        6-Digit Verification Code (valid 5 minutes)
+                      </label>
+                      <input
+                        id="rec-otp"
+                        type="text"
+                        inputMode="numeric"
+                        value={recOtpCode}
+                        onChange={(e) => setRecOtpCode(e.target.value)}
+                        placeholder="Enter 6-digit code"
+                        className="w-full px-3.5 py-2.5 text-sm font-mono bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="rec-totp-opt" className="block font-semibold text-[#476481] mb-1">
+                        Google Authenticator or Backup Code (if 2FA is active)
+                      </label>
+                      <input
+                        id="rec-totp-opt"
+                        type="text"
+                        value={recTotpOrBackup}
+                        onChange={(e) => setRecTotpOrBackup(e.target.value)}
+                        placeholder="6-digit TOTP or M5RC-XXXX-XXXX (if enabled)"
+                        className="w-full px-3.5 py-2.5 text-sm font-mono bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="w-full py-2.5 px-4 text-sm font-bold text-white bg-[#4CAF50] hover:bg-[#3E9642] rounded-xl"
+                    >
+                      {busy ? 'Verifying...' : 'Verify Recovery Code'}
+                    </button>
+                  </form>
+                )}
+
+                {recResetToken && (
+                  <form onSubmit={handleCompleteRecoveryReset} className="space-y-3 text-xs">
+                    {recRequiresTotp && (
+                      <div>
+                        <label htmlFor="rec-totp-req" className="block font-semibold text-[#476481] mb-1">
+                          Google Authenticator or Backup Code (Required)
+                        </label>
+                        <input
+                          id="rec-totp-req"
+                          type="text"
+                          value={recTotpOrBackup}
+                          onChange={(e) => setRecTotpOrBackup(e.target.value)}
+                          placeholder="6-digit TOTP or M5RC-XXXX-XXXX"
+                          className="w-full px-3.5 py-2.5 text-sm font-mono bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                          required
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label htmlFor="rec-new-pw" className="block font-semibold text-[#476481] mb-1">
+                        New Strong Password (8+ chars, upper, lower, digit, symbol)
+                      </label>
+                      <input
+                        id="rec-new-pw"
+                        type="password"
+                        value={recNewPassword}
+                        onChange={(e) => setRecNewPassword(e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-sm bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="w-full py-2.5 px-4 text-sm font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl"
+                    >
+                      {busy ? 'Resetting Password...' : 'Reset Password & Sign Out Other Sessions'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* LOST AUTHENTICATOR RECOVERY */}
+            {authTab === 'recover_totp' && (
+              <div className="mt-5 space-y-4">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#E5F0FA]">
+                  <div>
+                    <h3 className="text-base font-display font-bold text-[#0F2942]">
+                      Lost Google Authenticator Recovery
+                    </h3>
+                    <p className="text-xs text-[#526A84]">
+                      Use a single-use backup code or submit an administrator-verified recovery request.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthTab('login');
+                      setAuthRecSetupQr(null);
+                    }}
+                    className="text-xs font-semibold text-[#158EE3] hover:underline"
+                  >
+                    Back to Login
+                  </button>
+                </div>
+
+                {authRecSetupQr ? (
+                  <div className="p-4 rounded-2xl bg-[#F7FBFF] border border-[#CBE2FA] flex flex-col sm:flex-row items-center gap-4 text-xs">
+                    <img
+                      src={authRecSetupQr.qrDataUrl}
+                      alt="Fresh Authenticator QR"
+                      className="w-32 h-32 rounded-xl border border-[#DCEBFA] bg-white shrink-0"
+                    />
+                    <div className="space-y-1.5">
+                      <div className="font-bold text-[#0F2942]">Scan New Authenticator QR</div>
+                      <p className="text-[#476481]">
+                        Your old authenticator was disabled. Pair this QR key, then sign in and confirm under <strong>Account &amp; Security</strong>:
+                      </p>
+                      <div className="font-mono font-bold text-[#0F2942] bg-white px-2.5 py-1 rounded border border-[#DCEBFA]">
+                        {authRecSetupQr.manualKey}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleRecoverAuthenticator} className="space-y-3 text-xs">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setAuthRecMode('backup_code')}
+                        className={`py-2 px-3 rounded-xl border font-bold ${
+                          authRecMode === 'backup_code'
+                            ? 'bg-[#EBF5FF] border-[#158EE3] text-[#158EE3]'
+                            : 'bg-white border-[#DCEBFA] text-[#526A84]'
+                        }`}
+                      >
+                        Use Backup Code
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAuthRecMode('admin_request')}
+                        className={`py-2 px-3 rounded-xl border font-bold ${
+                          authRecMode === 'admin_request'
+                            ? 'bg-[#FFF5EE] border-[#F96A1B] text-[#9A2F09]'
+                            : 'bg-white border-[#DCEBFA] text-[#526A84]'
+                        }`}
+                      >
+                        Request Admin Reset
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={authRecIdentifier}
+                      onChange={(e) => setAuthRecIdentifier(e.target.value)}
+                      placeholder="Username, User ID, or Email"
+                      className="w-full px-3.5 py-2.5 text-sm bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                      required
+                    />
+                    <input
+                      type="password"
+                      value={authRecPassword}
+                      onChange={(e) => setAuthRecPassword(e.target.value)}
+                      placeholder="Account password"
+                      className="w-full px-3.5 py-2.5 text-sm bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                      required
+                    />
+                    {authRecMode === 'backup_code' ? (
+                      <input
+                        type="text"
+                        value={authRecBackupCode}
+                        onChange={(e) => setAuthRecBackupCode(e.target.value)}
+                        placeholder="Single-use backup code (e.g. M5RC-XXXX-XXXX)"
+                        className="w-full px-3.5 py-2.5 text-sm font-mono bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                        required
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={authRecReason}
+                        onChange={(e) => setAuthRecReason(e.target.value)}
+                        placeholder="Briefly describe your lost device for admin review"
+                        className="w-full px-3.5 py-2.5 text-sm bg-[#F8FBFF] border border-[#CBE2FA] rounded-xl"
+                        required
+                      />
+                    )}
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="w-full py-2.5 px-4 text-sm font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl"
+                    >
+                      {busy
+                        ? 'Processing...'
+                        : authRecMode === 'backup_code'
+                        ? 'Reset Authenticator with Backup Code'
+                        : 'Submit Request to Administrator'}
+                    </button>
+                  </form>
+                )}
+              </div>
             )}
 
             {/* REGISTER STEP 1 */}

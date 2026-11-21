@@ -50,6 +50,10 @@ export interface PracticeInitialFocus {
   interventionCaseId?: string;
   initialMode?: 'quiz' | 'flashcards' | 'knowledge';
   publicationId?: string;
+  scheduledSessionId?: string;
+  scheduledSessionTitle?: string;
+  preloadedQuizzes?: QuizItem[];
+  fixedAssessmentId?: string;
 }
 
 interface PracticeArenaProps {
@@ -102,9 +106,24 @@ export function PracticeArena({
     secondsRemaining: number;
   } | null>(null);
   const [spIdx, setSpIdx] = useState(0);
+  const [spSecondsLeft, setSpSecondsLeft] = useState<number | null>(null);
   const [spOptionAnswers, setSpOptionAnswers] = useState<Record<string, number>>({});
   const [spTextAnswers, setSpTextAnswers] = useState<Record<string, string>>({});
   const [spHintShown, setSpHintShown] = useState<Record<string, boolean>>({});
+  const [spFeedbackBySnap, setSpFeedbackBySnap] = useState<
+    Record<
+      string,
+      {
+        isCorrect: boolean | null;
+        markingStatus: 'auto_graded' | 'pending_manual';
+        correctDisplayOptionIndex: number | null;
+        acceptedAnswers: string[];
+        explanation: string;
+        memoryTrickTitle: string;
+        memoryTrickBody: string;
+      }
+    >
+  >({});
   const [spReviewResult, setSpReviewResult] = useState<{
     attempt: AssessmentAttemptRecord;
     assessment: AssessmentRecord;
@@ -127,6 +146,20 @@ export function PracticeArena({
   const [domainBreakdown, setDomainBreakdown] = useState<
     Record<string, { correct: number; total: number }>
   >({});
+  const [roundAttemptItems, setRoundAttemptItems] = useState<
+    {
+      quizId: string;
+      selectedIndex: number | null;
+      isCorrect: boolean;
+      hintsUsed: boolean;
+    }[]
+  >([]);
+  const [activeScheduledSessionId, setActiveScheduledSessionId] = useState<string | undefined>(
+    initialFocus?.scheduledSessionId
+  );
+  const [activeScheduledTitle, setActiveScheduledTitle] = useState<string | undefined>(
+    initialFocus?.scheduledSessionTitle
+  );
   const [startedAtMs, setStartedAtMs] = useState<number>(Date.now());
   const [questionStartedAtMs, setQuestionStartedAtMs] = useState<number>(Date.now());
   const [practiceSessionId, setPracticeSessionId] = useState<string>(
@@ -166,6 +199,28 @@ export function PracticeArena({
     setSubtopicId(initialFocus.subtopicId || 'All');
     setPinnedQuestionId(initialFocus.questionId);
     setInterventionCaseId(initialFocus.interventionCaseId);
+    setActiveScheduledSessionId(initialFocus.scheduledSessionId);
+    setActiveScheduledTitle(initialFocus.scheduledSessionTitle);
+    if (initialFocus.preloadedQuizzes && initialFocus.preloadedQuizzes.length > 0) {
+      setQuizzes(initialFocus.preloadedQuizzes);
+      setTotalAvailable(initialFocus.preloadedQuizzes.length);
+      setCurrentIndex(0);
+      setSelectedOption(null);
+      setShowStudyTrick(false);
+      setHintUsedBeforeAnswer(false);
+      setScoreCount(0);
+      setAnsweredCount(0);
+      setConsecutiveWrongCount(0);
+      setDomainBreakdown({});
+      setRoundAttemptItems([]);
+      const now = Date.now();
+      setStartedAtMs(now);
+      setQuestionStartedAtMs(now);
+      setRoundResult(null);
+      setLoading(false);
+    } else if (initialFocus.fixedAssessmentId) {
+      handleStartAssignedPractice(initialFocus.fixedAssessmentId);
+    }
     onConsumeInitialFocus?.();
   }, [initialFocus]);
 
@@ -182,6 +237,8 @@ export function PracticeArena({
     if (clearPinned) {
       setPinnedQuestionId(undefined);
       setInterventionCaseId(undefined);
+      setActiveScheduledSessionId(undefined);
+      setActiveScheduledTitle(undefined);
     }
     try {
       const res = await api.getPracticeRound({
@@ -212,6 +269,7 @@ export function PracticeArena({
       setAnsweredCount(0);
       setConsecutiveWrongCount(0);
       setDomainBreakdown({});
+      setRoundAttemptItems([]);
       const now = Date.now();
       setStartedAtMs(now);
       setQuestionStartedAtMs(now);
@@ -225,6 +283,8 @@ export function PracticeArena({
   };
 
   useEffect(() => {
+    if (initialFocus?.preloadedQuizzes && initialFocus.preloadedQuizzes.length > 0) return;
+    if (activeScheduledSessionId && quizzes.length > 0) return;
     loadRound();
   }, [levelMode, activeProficiency, domain, subjectId, topicId, subtopicId, pinnedQuestionId]);
 
@@ -241,6 +301,9 @@ export function PracticeArena({
         questions: res.questions,
         secondsRemaining: res.secondsRemaining,
       });
+      setSpSecondsLeft(
+        res.assessment.timeLimitMinutes && res.secondsRemaining > 0 ? res.secondsRemaining : null
+      );
       const opts: Record<string, number> = {};
       const texts: Record<string, string> = {};
       for (const sa of res.savedAnswers) {
@@ -250,11 +313,61 @@ export function PracticeArena({
       setSpOptionAnswers(opts);
       setSpTextAnswers(texts);
       setSpHintShown({});
+      setSpFeedbackBySnap({});
       setSpIdx(0);
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
       setSpBusy(false);
+    }
+  };
+
+  const savePracticeDraftProgress = async (
+    nextOpts = spOptionAnswers,
+    nextTexts = spTextAnswers
+  ) => {
+    if (!activePracticeSession) return;
+    try {
+      await api.saveAssessmentProgress(activePracticeSession.assessment.id, {
+        attemptId: activePracticeSession.attempt.id,
+        answers: activePracticeSession.questions.map((q) => {
+          const key = q.snapshotId || q.id;
+          return {
+            snapshotId: key,
+            questionId: q.id,
+            submittedOptionIndex: typeof nextOpts[key] === 'number' ? nextOpts[key] : null,
+            submittedAnswerText: nextTexts[key] ?? null,
+          };
+        }),
+      });
+    } catch {
+      // non-blocking autosave
+    }
+  };
+
+  const handleCheckPracticeImmediate = async (snapKey: string, qId: string) => {
+    if (!activePracticeSession) return;
+    try {
+      const res = await api.checkPracticeAnswer(activePracticeSession.assessment.id, {
+        attemptId: activePracticeSession.attempt.id,
+        snapshotId: snapKey,
+        submittedOptionIndex: typeof spOptionAnswers[snapKey] === 'number' ? spOptionAnswers[snapKey] : null,
+        submittedAnswerText: spTextAnswers[snapKey] ?? null,
+      });
+      setSpFeedbackBySnap((prev) => ({
+        ...prev,
+        [snapKey]: {
+          isCorrect: res.isCorrect,
+          markingStatus: res.markingStatus,
+          correctDisplayOptionIndex: res.correctDisplayOptionIndex,
+          acceptedAnswers: res.acceptedAnswers,
+          explanation: res.explanation,
+          memoryTrickTitle: res.memoryTrickTitle,
+          memoryTrickBody: res.memoryTrickBody,
+        },
+      }));
+    } catch (err) {
+      setErrorMsg((err as Error).message);
     }
   };
 
@@ -283,8 +396,15 @@ export function PracticeArena({
         hintUsedQuestionIds: hintUsedIds,
         timedOut,
       });
+      if (activeScheduledSessionId) {
+        await api
+          .completeScheduledSession(activeScheduledSessionId, res.attempt.id)
+          .catch(() => {});
+        setActiveScheduledSessionId(undefined);
+      }
       setSpReviewResult(res.review);
       setActivePracticeSession(null);
+      setSpSecondsLeft(null);
       onUserAndTrajectoryUpdate(res.user, res.trajectory);
       await loadAssignedPracticeSessions();
     } catch (err) {
@@ -293,6 +413,22 @@ export function PracticeArena({
       setSpBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!activePracticeSession || !activePracticeSession.assessment.timeLimitMinutes) return;
+    const timer = window.setInterval(() => {
+      setSpSecondsLeft((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          handleSaveAndSubmitPracticeSession(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [activePracticeSession?.attempt.id]);
 
   const currentQuiz = quizzes[currentIndex];
 
@@ -319,6 +455,18 @@ export function PracticeArena({
           total: existing.total + 1,
         },
       };
+    });
+    setRoundAttemptItems((prev) => {
+      const filtered = prev.filter((p) => p.quizId !== currentQuiz.id);
+      return [
+        ...filtered,
+        {
+          quizId: currentQuiz.id,
+          selectedIndex: idx,
+          isCorrect,
+          hintsUsed: hintUsedBeforeAnswer,
+        },
+      ];
     });
 
     const durationMs = Math.max(400, Date.now() - questionStartedAtMs);
@@ -348,6 +496,18 @@ export function PracticeArena({
 
   const handleSkipQuestion = async () => {
     if (selectedOption !== null || !currentQuiz) return;
+    setRoundAttemptItems((prev) => {
+      const filtered = prev.filter((p) => p.quizId !== currentQuiz.id);
+      return [
+        ...filtered,
+        {
+          quizId: currentQuiz.id,
+          selectedIndex: null,
+          isCorrect: false,
+          hintsUsed: hintUsedBeforeAnswer,
+        },
+      ];
+    });
     const durationMs = Math.max(400, Date.now() - questionStartedAtMs);
     api
       .submitQuestionAttempt({
@@ -388,7 +548,11 @@ export function PracticeArena({
         correctCount: scoreCount,
         timeSpentSeconds: elapsed,
         domainBreakdown,
+        items: roundAttemptItems,
+        paperTitle: activeScheduledTitle,
+        scheduledSessionId: activeScheduledSessionId,
       });
+      setActiveScheduledSessionId(undefined);
       setRoundResult({
         starsEarned: res.attempt.starsEarned,
         scorePercent: res.attempt.scorePercent,
@@ -702,6 +866,18 @@ export function PracticeArena({
           const sq = activePracticeSession.questions[spIdx];
           const key = sq.snapshotId || sq.id;
           const qType = sq.questionType || 'mcq';
+          const isImmediateFeedback =
+            activePracticeSession.assessment.explanationTiming === 'immediate';
+          const feedback = spFeedbackBySnap[key];
+          const hasAnswerForCurrent =
+            typeof spOptionAnswers[key] === 'number' || Boolean(spTextAnswers[key]?.trim());
+          const formattedTimer =
+            spSecondsLeft !== null
+              ? `${String(Math.floor(spSecondsLeft / 60)).padStart(2, '0')}:${String(
+                  spSecondsLeft % 60
+                ).padStart(2, '0')}`
+              : null;
+
           return (
             <div
               data-testid="active-practice-session"
@@ -719,17 +895,32 @@ export function PracticeArena({
                 </div>
                 <div className="flex items-center gap-2">
                   {activePracticeSession.assessment.timeLimitMinutes && (
-                    <span className="px-3 py-1.5 text-xs font-bold text-[#0F2942] bg-[#F3F9FF] border border-[#CBE2FA] rounded-xl flex items-center gap-1 tabular-nums">
+                    <span
+                      data-testid="practice-session-timer"
+                      className={`px-3 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1 tabular-nums ${
+                        spSecondsLeft !== null && spSecondsLeft <= 60
+                          ? 'text-[#C62828] bg-[#FFF2ED] border-[#FAC5B2]'
+                          : 'text-[#0F2942] bg-[#F3F9FF] border-[#CBE2FA]'
+                      }`}
+                    >
                       <Clock className="w-3.5 h-3.5 text-[#158EE3]" />
-                      <span>{activePracticeSession.assessment.timeLimitMinutes} min guide</span>
+                      <span>
+                        {formattedTimer
+                          ? `${formattedTimer} left`
+                          : `${activePracticeSession.assessment.timeLimitMinutes} min guide`}
+                      </span>
                     </span>
                   )}
                   <button
                     type="button"
-                    onClick={() => setActivePracticeSession(null)}
+                    onClick={async () => {
+                      await savePracticeDraftProgress();
+                      setActivePracticeSession(null);
+                      setSpSecondsLeft(null);
+                    }}
                     className="px-3 py-1.5 text-xs font-semibold text-[#526A84] bg-[#F8FBFF] border border-[#DCEBFA] rounded-xl"
                   >
-                    Exit Session
+                    Save &amp; Exit
                   </button>
                 </div>
               </div>
@@ -738,6 +929,16 @@ export function PracticeArena({
                 <h2 className="text-xl font-display font-bold text-[#0F2942]">{sq.questionSi}</h2>
                 {sq.questionEn && sq.questionEn !== sq.questionSi && (
                   <p className="text-sm text-[#526A84] mt-1">{sq.questionEn}</p>
+                )}
+                {sq.imageUrl && (
+                  <div className="mt-3 rounded-2xl border border-[#DCEBFA] bg-[#F8FBFF] p-3">
+                    <img
+                      src={sq.imageUrl}
+                      alt="Practice question diagram"
+                      referrerPolicy="no-referrer"
+                      className="max-h-52 mx-auto rounded-xl object-contain"
+                    />
+                  </div>
                 )}
               </div>
 
@@ -752,9 +953,11 @@ export function PracticeArena({
                         <button
                           key={idx}
                           type="button"
-                          onClick={() =>
-                            setSpOptionAnswers((prev) => ({ ...prev, [key]: idx }))
-                          }
+                          onClick={() => {
+                            const nextOpts = { ...spOptionAnswers, [key]: idx };
+                            setSpOptionAnswers(nextOpts);
+                            savePracticeDraftProgress(nextOpts, spTextAnswers);
+                          }}
                           className={`w-full p-3.5 rounded-2xl border-2 text-left font-medium flex items-center gap-3 transition-colors ${
                             chosen
                               ? 'bg-[#158EE3] border-[#1176BE] text-white'
@@ -782,7 +985,7 @@ export function PracticeArena({
                   </label>
                   <input
                     id="sp-text-input"
-                    type={qType === 'numerical' ? 'text' : 'text'}
+                    type="text"
                     value={spTextAnswers[key] || ''}
                     onChange={(e) =>
                       setSpTextAnswers((prev) => ({ ...prev, [key]: e.target.value }))
@@ -793,8 +996,8 @@ export function PracticeArena({
                 </div>
               )}
 
-              {activePracticeSession.assessment.showHints && sq.hint && (
-                <div>
+              <div className="flex flex-wrap items-center gap-2">
+                {activePracticeSession.assessment.showHints && sq.hint && (
                   <button
                     type="button"
                     onClick={() =>
@@ -805,9 +1008,48 @@ export function PracticeArena({
                     <HelpCircle className="w-3.5 h-3.5" />
                     <span>{spHintShown[key] ? 'Hide Hint' : 'Show Guided Hint'}</span>
                   </button>
-                  {spHintShown[key] && (
-                    <div className="mt-2 p-3 rounded-xl bg-[#FFF9EE] border border-[#FDE1B2] text-xs text-[#613C00]">
-                      {sq.hint}
+                )}
+
+                {isImmediateFeedback && hasAnswerForCurrent && (
+                  <button
+                    type="button"
+                    data-testid="check-practice-answer-btn"
+                    onClick={() => handleCheckPracticeImmediate(key, sq.id)}
+                    className="px-3.5 py-1.5 text-xs font-bold text-[#0E4F80] bg-[#EBF5FF] border border-[#99CAFA] rounded-xl hover:bg-[#DCEEFF]"
+                  >
+                    Check Answer &amp; Explanation
+                  </button>
+                )}
+              </div>
+
+              {activePracticeSession.assessment.showHints && sq.hint && spHintShown[key] && (
+                <div className="p-3 rounded-xl bg-[#FFF9EE] border border-[#FDE1B2] text-xs text-[#613C00]">
+                  <strong>Guided Hint:</strong> {sq.hint}
+                </div>
+              )}
+
+              {feedback && (
+                <div
+                  data-testid="practice-immediate-feedback"
+                  className={`p-4 rounded-2xl border space-y-2 text-xs ${
+                    feedback.markingStatus === 'pending_manual'
+                      ? 'bg-[#FFF9EE] border-[#F5D399] text-[#7C4D00]'
+                      : feedback.isCorrect
+                      ? 'bg-[#EEF9EF] border-[#B7E1BA] text-[#1E6323]'
+                      : 'bg-[#FFF2ED] border-[#FAC5B2] text-[#9A2F09]'
+                  }`}
+                >
+                  <div className="font-bold text-sm">
+                    {feedback.markingStatus === 'pending_manual'
+                      ? 'Saved for Teacher Marking'
+                      : feedback.isCorrect
+                      ? 'Correct!'
+                      : 'Review Explanation'}
+                  </div>
+                  <div className="text-[#0F2942]">{feedback.explanation}</div>
+                  {feedback.memoryTrickBody && (
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-[#FDE1B2] text-[#613C00]">
+                      <strong>{feedback.memoryTrickTitle}:</strong> {feedback.memoryTrickBody}
                     </div>
                   )}
                 </div>
@@ -817,7 +1059,10 @@ export function PracticeArena({
                 <button
                   type="button"
                   disabled={spIdx === 0}
-                  onClick={() => setSpIdx((i) => Math.max(0, i - 1))}
+                  onClick={() => {
+                    savePracticeDraftProgress();
+                    setSpIdx((i) => Math.max(0, i - 1));
+                  }}
                   className="px-4 py-2 text-xs font-semibold text-[#0F2942] bg-[#F3F9FF] border border-[#DCEBFA] rounded-xl disabled:opacity-40"
                 >
                   Previous
@@ -826,11 +1071,12 @@ export function PracticeArena({
                   {spIdx < activePracticeSession.questions.length - 1 ? (
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        savePracticeDraftProgress();
                         setSpIdx((i) =>
                           Math.min(activePracticeSession.questions.length - 1, i + 1)
-                        )
-                      }
+                        );
+                      }}
                       className="px-4 py-2 text-xs font-bold text-white bg-[#158EE3] rounded-xl"
                     >
                       Next Question

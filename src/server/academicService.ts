@@ -33,7 +33,11 @@ import {
   calculateStudentBaselineVsFollowUp,
   type StudentImprovementSummary,
 } from '../lib/questionIntelligence.ts';
-import { hashPassword } from '../lib/security.ts';
+import {
+  encryptTotpSecret,
+  getTotpEncryptionMasterKey,
+  hashPassword,
+} from '../lib/security.ts';
 import { calculateUpdatedStreak, sanitizeDailyGoalTarget } from '../lib/streak.ts';
 import type {
   AcademicConfig,
@@ -81,20 +85,27 @@ export class HttpError extends Error {
 export interface SanitizedUser {
   id: string;
   userIdCode: string;
+  username?: string;
+  usernameUpdatedAt?: string | null;
   name: string;
   email: string;
   whatsappNumber: string;
+  whatsappVerified?: boolean;
   role: UserRole;
   grade: string;
   delegatedPublishSubjects: string[];
   active: boolean;
   guardianName: string;
+  guardianUserId?: string | null;
   guardianContactVerified: boolean;
   guardianConsentGiven: boolean;
   notificationPreferences: NotificationPreferences;
   assignedSubjectIds: string[];
   emailVerified: boolean;
   totpEnabled: boolean;
+  totpEnrolledAt?: string | null;
+  totpMandatory?: boolean;
+  passwordUpdatedAt?: string | null;
   subscriptionStatus: 'trial' | 'active';
   subscriptionPlanId: string | null;
   subscriptionExpiresAt: string | null;
@@ -135,13 +146,17 @@ function parseJsonSafe<T>(raw: unknown, fallback: T): T {
 }
 
 function rowToUser(row: Record<string, unknown>, assignedSubjectIds: string[] = []): UserAccount {
+  const role = String(row.role) as UserRole;
   return {
     id: String(row.id),
     userIdCode: String(row.user_id_code),
+    username: row.username ? String(row.username) : String(row.user_id_code).toLowerCase(),
+    usernameUpdatedAt: row.username_updated_at ? String(row.username_updated_at) : null,
     name: String(row.name),
     email: String(row.email),
     whatsappNumber: String(row.whatsapp_number),
-    role: String(row.role) as UserRole,
+    whatsappVerified: Number(row.whatsapp_verified ?? 1) === 1,
+    role,
     grade: String(row.grade || 'Grade 5'),
     delegatedPublishSubjects: parseJsonSafe<string[]>(
       row.delegated_publish_subjects_json,
@@ -149,6 +164,7 @@ function rowToUser(row: Record<string, unknown>, assignedSubjectIds: string[] = 
     ),
     active: Number(row.active ?? 1) === 1,
     guardianName: String(row.guardian_name || ''),
+    guardianUserId: row.guardian_user_id ? String(row.guardian_user_id) : null,
     guardianContactVerified: Number(row.guardian_contact_verified ?? 1) === 1,
     guardianConsentGiven: Number(row.guardian_consent_given ?? 1) === 1,
     notificationPreferences: parseJsonSafe<NotificationPreferences>(
@@ -157,9 +173,12 @@ function rowToUser(row: Record<string, unknown>, assignedSubjectIds: string[] = 
     ),
     assignedSubjectIds,
     passwordHash: String(row.password_hash),
+    passwordUpdatedAt: row.password_updated_at ? String(row.password_updated_at) : null,
     totpSecret: String(row.totp_secret),
     emailVerified: Number(row.email_verified ?? 1) === 1,
     totpEnabled: Number(row.totp_enabled ?? 0) === 1,
+    totpEnrolledAt: row.totp_enrolled_at ? String(row.totp_enrolled_at) : null,
+    totpMandatory: role !== 'admin' && process.env.TOTP_MANDATORY_NON_ADMIN !== 'false',
     subscriptionStatus: String(row.subscription_status || 'trial') as 'trial' | 'active',
     subscriptionPlanId: row.subscription_plan_id ? String(row.subscription_plan_id) : null,
     subscriptionExpiresAt: row.subscription_expires_at ? String(row.subscription_expires_at) : null,
@@ -319,20 +338,29 @@ export class AcademicService {
     return {
       id: user.id,
       userIdCode: user.userIdCode,
+      username: user.username || user.userIdCode.toLowerCase(),
+      usernameUpdatedAt: user.usernameUpdatedAt ?? null,
       name: user.name,
       email: user.email,
       whatsappNumber: user.whatsappNumber,
+      whatsappVerified: user.whatsappVerified ?? true,
       role: user.role,
       grade: user.grade || 'Grade 5',
       delegatedPublishSubjects: user.delegatedPublishSubjects || [],
       active: user.active ?? true,
       guardianName: user.guardianName || '',
+      guardianUserId: user.guardianUserId ?? null,
       guardianContactVerified: user.guardianContactVerified ?? true,
       guardianConsentGiven: user.guardianConsentGiven ?? true,
       notificationPreferences: user.notificationPreferences || DEFAULT_PREFS,
       assignedSubjectIds,
       emailVerified: user.emailVerified,
       totpEnabled: user.totpEnabled,
+      totpEnrolledAt: user.totpEnrolledAt ?? null,
+      totpMandatory:
+        user.totpMandatory ??
+        (user.role !== 'admin' && process.env.TOTP_MANDATORY_NON_ADMIN !== 'false'),
+      passwordUpdatedAt: user.passwordUpdatedAt ?? null,
       subscriptionStatus: user.subscriptionStatus,
       subscriptionPlanId: user.subscriptionPlanId,
       subscriptionExpiresAt: user.subscriptionExpiresAt,
@@ -357,17 +385,39 @@ export class AcademicService {
 
   public getUserByIdentifier(identifier: string): UserAccount | null {
     const clean = identifier.trim().toLowerCase();
+    if (!clean) return null;
     const row = this.db
-      .prepare('SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(user_id_code) = ?')
-      .get(clean, clean) as Record<string, unknown> | undefined;
+      .prepare(
+        `SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(user_id_code) = ? OR LOWER(COALESCE(username, '')) = ?`
+      )
+      .get(clean, clean, clean) as Record<string, unknown> | undefined;
     if (!row) return null;
     const assigned =
       row.role === 'teacher' ? this.getTeacherAssignedSubjectIds(String(row.id)) : [];
     return rowToUser(row, assigned);
   }
 
+  private allocateInitialUsername(preferredSeed: string): string {
+    const base = preferredSeed
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '_')
+      .replace(/^[._-]+|[._-]+$/g, '')
+      .replace(/[._-]{2,}/g, '_');
+    let candidate = base.length >= 4 ? base.slice(0, 24) : `m5_${base || 'user'}`;
+    while (
+      this.db
+        .prepare('SELECT id FROM users WHERE LOWER(username) = ?')
+        .get(candidate.toLowerCase())
+    ) {
+      candidate = `${candidate.slice(0, 20)}_${crypto.randomBytes(2).toString('hex')}`;
+    }
+    return candidate;
+  }
+
   public createStudentUser(params: {
     userIdCode: string;
+    username?: string;
     name: string;
     email: string;
     whatsappNumber: string;
@@ -378,38 +428,85 @@ export class AcademicService {
   }): UserAccount {
     const cleanEmail = params.email.trim().toLowerCase();
     const cleanCode = params.userIdCode.trim().toUpperCase();
+    const cleanUsername = this.allocateInitialUsername(params.username || cleanCode);
     const existing = this.db
-      .prepare('SELECT id FROM users WHERE LOWER(email) = ? OR UPPER(user_id_code) = ?')
-      .get(cleanEmail, cleanCode);
+      .prepare(
+        'SELECT id FROM users WHERE LOWER(email) = ? OR UPPER(user_id_code) = ? OR LOWER(username) = ?'
+      )
+      .get(cleanEmail, cleanCode, cleanUsername.toLowerCase());
     if (existing) {
-      throw new HttpError(409, 'An account with this Email or User ID already exists.');
+      throw new HttpError(409, 'An account with this Email, Username, or User ID already exists.');
     }
 
     const id = `usr-${crypto.randomBytes(5).toString('hex')}`;
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO users (
-          id, user_id_code, name, email, whatsapp_number, role, active, guardian_name,
-          guardian_contact_verified, guardian_consent_given, notification_preferences_json,
-          password_hash, totp_secret, email_verified, totp_enabled, subscription_status,
-          subscription_plan_id, subscription_expires_at, current_level, stars, streak_days,
-          daily_goal_questions, created_at
-        ) VALUES (?, ?, ?, ?, ?, 'student', 1, ?, 1, 1, ?, ?, ?, 1, ?, 'trial', NULL, NULL, 'Foundation Simple', 20, 1, 10, ?)`
-      )
-      .run(
-        id,
-        cleanCode,
-        params.name.trim(),
-        cleanEmail,
-        params.whatsappNumber.trim() || '+94770000000',
-        (params.guardianName || 'Parent / Guardian').trim(),
-        JSON.stringify(DEFAULT_PREFS),
-        params.passwordHash,
-        params.totpSecret,
-        params.totpEnabled ? 1 : 0,
-        now
-      );
+    const encryptedTotp = encryptTotpSecret(params.totpSecret, getTotpEncryptionMasterKey());
+    const waNumber = params.whatsappNumber.trim() || '+94770000000';
+
+    this.dbWrapper.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO users (
+            id, user_id_code, username, name, email, whatsapp_number, whatsapp_verified,
+            role, active, guardian_name, guardian_contact_verified, guardian_consent_given,
+            notification_preferences_json, password_hash, password_updated_at, totp_secret,
+            email_verified, totp_enabled, totp_enrolled_at, subscription_status,
+            subscription_plan_id, subscription_expires_at, current_level, stars, streak_days,
+            daily_goal_questions, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, 'student', 1, ?, 1, 1, ?, ?, ?, ?, 1, ?, ?, 'trial', NULL, NULL, 'Foundation Simple', 20, 1, 10, ?)`
+        )
+        .run(
+          id,
+          cleanCode,
+          cleanUsername,
+          params.name.trim(),
+          cleanEmail,
+          waNumber,
+          (params.guardianName || 'Parent / Guardian').trim(),
+          JSON.stringify(DEFAULT_PREFS),
+          params.passwordHash,
+          now,
+          encryptedTotp,
+          params.totpEnabled ? 1 : 0,
+          params.totpEnabled ? now : null,
+          now
+        );
+
+      this.db
+        .prepare(
+          `INSERT INTO verified_recovery_contacts (id, user_id, channel, contact_value, is_primary, verified, verified_at, created_at, updated_at)
+           VALUES (?, ?, 'email', ?, 1, 1, ?, ?, ?), (?, ?, 'whatsapp', ?, 1, 1, ?, ?, ?)`
+        )
+        .run(
+          `VRC-${crypto.randomBytes(4).toString('hex')}`,
+          id,
+          cleanEmail,
+          now,
+          now,
+          now,
+          `VRC-${crypto.randomBytes(4).toString('hex')}`,
+          id,
+          waNumber,
+          now,
+          now,
+          now
+        );
+
+      this.db
+        .prepare(
+          `INSERT INTO password_history (id, user_id, password_hash, created_at) VALUES (?, ?, ?, ?)`
+        )
+        .run(`PWH-${crypto.randomBytes(5).toString('hex')}`, id, params.passwordHash, now);
+
+      if (params.totpEnabled) {
+        this.db
+          .prepare(
+            `INSERT INTO totp_enrollments (id, user_id, encrypted_secret, status, guardian_assisted, enrolled_by_user_id, verified_at, created_at, updated_at)
+             VALUES (?, ?, ?, 'ACTIVE', 0, ?, ?, ?, ?)`
+          )
+          .run(`TOTP-${id}`, id, encryptedTotp, id, now, now, now);
+      }
+    });
 
     return this.getUserById(id)!;
   }
@@ -622,28 +719,61 @@ export class AcademicService {
     const validSubjectIds = this.validateSubjectIds(payload.subjectIds || []);
     const teacherId = `usr-teacher-${crypto.randomBytes(4).toString('hex')}`;
     const now = new Date().toISOString();
+    const cleanUsername = this.allocateInitialUsername(cleanCode);
+    const pwHash = hashPassword(payload.password);
+    const waNumber = String(payload.whatsappNumber || '+94710000000').trim();
+    const encryptedTotp = encryptTotpSecret('MFRGGZDFMZTWQ2LK', getTotpEncryptionMasterKey());
 
     this.dbWrapper.transaction(() => {
       this.db
         .prepare(
           `INSERT INTO users (
-            id, user_id_code, name, email, whatsapp_number, role, active, guardian_name,
+            id, user_id_code, username, name, email, whatsapp_number, whatsapp_verified, role, active, guardian_name,
             guardian_contact_verified, guardian_consent_given, notification_preferences_json,
-            password_hash, totp_secret, email_verified, totp_enabled, subscription_status,
+            password_hash, password_updated_at, totp_secret, email_verified, totp_enabled, subscription_status,
             subscription_plan_id, subscription_expires_at, current_level, stars, streak_days,
             daily_goal_questions, created_at
-          ) VALUES (?, ?, ?, ?, ?, 'teacher', 1, '', 1, 1, ?, ?, 'MFRGGZDFMZTWQ2LK', 1, 0, 'active', NULL, NULL, 'Scholarship Master', 0, 0, 10, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, 'teacher', 1, '', 1, 1, ?, ?, ?, ?, 1, 0, 'active', NULL, NULL, 'Scholarship Master', 0, 0, 10, ?)`
         )
         .run(
           teacherId,
           cleanCode,
+          cleanUsername,
           cleanName,
           cleanEmail,
-          String(payload.whatsappNumber || '+94710000000').trim(),
+          waNumber,
           JSON.stringify(DEFAULT_PREFS),
-          hashPassword(payload.password),
+          pwHash,
+          now,
+          encryptedTotp,
           now
         );
+
+      this.db
+        .prepare(
+          `INSERT INTO verified_recovery_contacts (id, user_id, channel, contact_value, is_primary, verified, verified_at, created_at, updated_at)
+           VALUES (?, ?, 'email', ?, 1, 1, ?, ?, ?), (?, ?, 'whatsapp', ?, 1, 1, ?, ?, ?)`
+        )
+        .run(
+          `VRC-${crypto.randomBytes(4).toString('hex')}`,
+          teacherId,
+          cleanEmail,
+          now,
+          now,
+          now,
+          `VRC-${crypto.randomBytes(4).toString('hex')}`,
+          teacherId,
+          waNumber,
+          now,
+          now,
+          now
+        );
+
+      this.db
+        .prepare(
+          `INSERT INTO password_history (id, user_id, password_hash, created_at) VALUES (?, ?, ?, ?)`
+        )
+        .run(`PWH-${crypto.randomBytes(5).toString('hex')}`, teacherId, pwHash, now);
 
       const assignStmt = this.db.prepare(
         `INSERT INTO teacher_subject_assignments (id, teacher_id, subject_id, assigned_by_admin_id, assigned_at)
@@ -976,8 +1106,14 @@ export class AcademicService {
     return null;
   }
 
-  public listCuratedQuestions(ctx: AuthorizationContext, includeRetired = false): QuizItem[] {
-    const sql = includeRetired
+  public listCuratedQuestions(
+    ctx: AuthorizationContext,
+    includeRetired = false,
+    activeOnly = false
+  ): QuizItem[] {
+    const sql = activeOnly
+      ? `SELECT * FROM questions WHERE active = 1 AND COALESCE(approval_status, 'ACTIVE') = 'ACTIVE' ORDER BY created_at DESC`
+      : includeRetired
       ? 'SELECT * FROM questions WHERE active = 1 ORDER BY created_at DESC'
       : `SELECT * FROM questions WHERE active = 1 AND COALESCE(approval_status, 'ACTIVE') != 'RETIRED' ORDER BY created_at DESC`;
     const rows = this.db.prepare(sql).all() as Record<string, unknown>[];
@@ -1026,7 +1162,7 @@ export class AcademicService {
     const curated = this.listCuratedQuestions(ctx, includeRetired);
     const sourceFilter = filters.source || 'all';
     const page = Math.max(1, Number(filters.page || 1));
-    const pageSize = Math.min(50, Math.max(5, Number(filters.pageSize || 20)));
+    const pageSize = Math.min(200, Math.max(5, Number(filters.pageSize || 50)));
 
     let list: QuizItem[] = [];
     if (sourceFilter === 'curated') {
@@ -1152,10 +1288,18 @@ export class AcademicService {
       enriched = enriched.filter((q) => q.stats.validAttempts > 0 && q.stats.correctRate < 50);
     }
 
+    const totalCount = enriched.length;
+    const startIdx = (page - 1) * pageSize;
+    const pagedQuizzes =
+      sourceFilter === 'pool' ? enriched : enriched.slice(startIdx, startIdx + pageSize);
+
     return {
       totalVirtualPool: TOTAL_VIRTUAL_POOL_SIZE,
       curatedCount: curated.length,
-      quizzes: enriched,
+      totalCount,
+      page,
+      pageSize,
+      quizzes: pagedQuizzes,
     };
   }
 

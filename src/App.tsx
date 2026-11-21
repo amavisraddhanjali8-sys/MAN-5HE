@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Newspaper,
   Settings,
+  ShieldCheck,
   TrendingUp,
   Users,
 } from 'lucide-react';
@@ -22,22 +23,26 @@ import {
 } from './lib/api';
 import type {
   AttemptRecord,
+  GuardianStudentLink,
+  ScheduledSessionRecord,
   StudentTrajectory,
   SubjectCategory,
   SubtopicNode,
   TopicNode,
 } from './lib/types';
+import { AccountSecurityModal } from './components/AccountSecurityModal';
 import { AdminStudio, type AdminSectionId } from './components/AdminStudio';
 import { AuthAndPaymentGate } from './components/AuthAndPaymentGate';
 import { Man5heLogo } from './components/BrandVisuals';
 import { ParentCommsHub } from './components/ParentCommsHub';
+import { ParentLearningPlanner } from './components/ParentLearningPlanner';
 import { PracticeArena, type PracticeInitialFocus } from './components/PracticeArena';
 import { ProfileAlertsMenu } from './components/ProfileAlertsMenu';
 import { StudentHome } from './components/StudentHome';
 import { SubjectProficiencyRadar } from './components/SubjectProficiencyRadar';
 import { SystemDocsView } from './components/SystemDocsView';
 import { TeacherPortal } from './components/TeacherPortal';
-import { TimedExamHall } from './components/TimedExamHall';
+import { TimedExamHall, type ScheduledExamLaunch } from './components/TimedExamHall';
 
 type AppView =
   | 'home'
@@ -61,6 +66,7 @@ type AppView =
 function defaultViewForRole(role: AuthUser['role']): AppView {
   if (role === 'admin') return 'admin_overview';
   if (role === 'teacher') return 'teacher_overview';
+  if (role === 'parent') return 'progress';
   return 'home';
 }
 
@@ -78,12 +84,36 @@ export default function App() {
     StudentInterventionInstruction[]
   >([]);
   const [practiceFocus, setPracticeFocus] = useState<PracticeInitialFocus | null>(null);
+  const [scheduledExamLaunch, setScheduledExamLaunch] = useState<ScheduledExamLaunch | null>(null);
+  const [guardianLinks, setGuardianLinks] = useState<GuardianStudentLink[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string>('usr-student-1');
   const [initialCaseId, setInitialCaseId] = useState<string | null>(null);
+  const [securityModalOpen, setSecurityModalOpen] = useState(false);
+  const [forceTotpOnboarding, setForceTotpOnboarding] = useState(false);
 
-  const loadWorkspaceData = async (loggedUser: AuthUser, preserveView = false) => {
+  const loadWorkspaceData = async (
+    loggedUser: AuthUser,
+    preserveView = false,
+    targetStudentId?: string
+  ) => {
     try {
+      let resolvedLinks: GuardianStudentLink[] = guardianLinks;
+      let activeChildId = targetStudentId || selectedChildId;
+      if (loggedUser.role === 'parent') {
+        const glRes = await api.getGuardianLinks().catch(() => ({ links: [] as GuardianStudentLink[] }));
+        resolvedLinks = glRes.links;
+        setGuardianLinks(glRes.links);
+        if (
+          glRes.links.length > 0 &&
+          (!activeChildId || !glRes.links.some((l) => l.studentUserId === activeChildId))
+        ) {
+          activeChildId = glRes.links[0].studentUserId;
+        }
+        setSelectedChildId(activeChildId);
+      }
+
       const [analyticsRes, statsRes, hierRes, intRes] = await Promise.all([
-        api.getStudentAnalytics(),
+        api.getStudentAnalytics(loggedUser.role === 'parent' ? activeChildId : undefined),
         api.getQuizStats(),
         api.getHierarchy(),
         loggedUser.role === 'student'
@@ -114,7 +144,12 @@ export default function App() {
     }
     api
       .getMe()
-      .then((res) => loadWorkspaceData(res.user))
+      .then((res) => {
+        if (res.totpEnrollmentRequired && res.user.role !== 'admin' && !res.user.totpEnabled) {
+          setForceTotpOnboarding(true);
+        }
+        return loadWorkspaceData(res.user);
+      })
       .catch(() => {
         setStoredToken(null);
         setUser(null);
@@ -122,17 +157,27 @@ export default function App() {
       .finally(() => setBooting(false));
   }, []);
 
-  const handleAuthenticated = async (loggedUser: AuthUser) => {
+  const handleAuthenticated = async (
+    loggedUser: AuthUser,
+    opts?: { totpEnrollmentRequired?: boolean }
+  ) => {
     setUser(loggedUser);
+    if (opts?.totpEnrollmentRequired && loggedUser.role !== 'admin' && !loggedUser.totpEnabled) {
+      setForceTotpOnboarding(true);
+      setSecurityModalOpen(true);
+    }
     await loadWorkspaceData(loggedUser);
   };
 
   const handleSignOut = () => {
+    api.logout().catch(() => {});
     setStoredToken(null);
     setUser(null);
     setView('home');
     setPracticeFocus(null);
     setInitialCaseId(null);
+    setSecurityModalOpen(false);
+    setForceTotpOnboarding(false);
   };
 
   const handleQuickShare = async () => {
@@ -153,6 +198,45 @@ export default function App() {
       interventionCaseId: item.id,
     });
     setView('practice');
+  };
+
+  const handleStartScheduledSession = async (session: ScheduledSessionRecord) => {
+    try {
+      const started = await api.startScheduledSession(session.id);
+      if (
+        started.launchMode === 'fixed_paper' ||
+        session.activityType === 'mock_exam'
+      ) {
+        setScheduledExamLaunch({
+          scheduledSessionId: session.id,
+          fixedPaperId: started.fixedPaperId,
+          fixedAssessmentId: started.fixedAssessmentId,
+        });
+        setView('exams');
+        return;
+      }
+      setPracticeFocus({
+        scheduledSessionId: session.id,
+        scheduledSessionTitle: session.title,
+        preloadedQuizzes: started.quizzes,
+        fixedAssessmentId: started.fixedAssessmentId || undefined,
+      });
+      setView('practice');
+    } catch {
+      setView(session.activityType === 'mock_exam' ? 'exams' : 'practice');
+    }
+  };
+
+  const handleSelectParentChild = async (childId: string) => {
+    setSelectedChildId(childId);
+    if (!user) return;
+    try {
+      const analyticsRes = await api.getStudentAnalytics(childId);
+      setAttempts(analyticsRes.attempts);
+      setTrajectory(analyticsRes.trajectory);
+    } catch {
+      // keep existing
+    }
   };
 
   if (booting) {
@@ -223,6 +307,11 @@ export default function App() {
             label: 'Knowledge Hub',
             icon: <Newspaper className="w-4 h-4" />,
           },
+        ]
+      : user.role === 'parent'
+      ? [
+          { id: 'progress', label: 'Guardian Overview', icon: <TrendingUp className="w-4 h-4" /> },
+          { id: 'billing', label: 'Plans & Billing', icon: <FileText className="w-4 h-4" /> },
         ]
       : [
           { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
@@ -308,6 +397,10 @@ export default function App() {
               subjects={subjects}
               onUserUpdated={(updated) => setUser(updated)}
               onSignOut={handleSignOut}
+              onOpenSecurity={() => {
+                setForceTotpOnboarding(!user.totpEnabled && user.role !== 'admin');
+                setSecurityModalOpen(true);
+              }}
               onOpenCase={(caseId) => {
                 setInitialCaseId(caseId);
                 if (user.role === 'teacher') {
@@ -374,6 +467,28 @@ export default function App() {
           </aside>
 
           <main className="flex-1 bg-[#F8FBFF] p-4 sm:p-6 lg:p-7 overflow-y-auto">
+            {user.role !== 'admin' && !user.totpEnabled && (
+              <div className="mb-5 p-4 rounded-2xl bg-[#FFF8EB] border border-[#F3D19C] flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 text-xs text-[#7B4B00]">
+                  <ShieldCheck className="w-5 h-5 text-[#D97706] shrink-0" />
+                  <div>
+                    <span className="font-bold">Google Authenticator Setup Required:</span>{' '}
+                    Complete mandatory two-factor enrollment and save your backup recovery codes to protect your account.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForceTotpOnboarding(true);
+                    setSecurityModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-white bg-[#F96A1B] hover:bg-[#DE580E] rounded-xl shrink-0"
+                >
+                  Enroll Authenticator Now
+                </button>
+              </div>
+            )}
+
             {/* STUDENT PORTAL */}
             {view === 'home' && trajectory && (
               <StudentHome
@@ -383,6 +498,7 @@ export default function App() {
                 poolCount={poolCount}
                 interventions={studentInterventions}
                 onStartTargetedPractice={handleStartTargetedPractice}
+                onStartScheduledSession={handleStartScheduledSession}
                 onNavigate={(next) => {
                   if (next === 'parents') {
                     setView('progress');
@@ -415,6 +531,8 @@ export default function App() {
             {view === 'exams' && (
               <TimedExamHall
                 user={user}
+                scheduledLaunch={scheduledExamLaunch}
+                onConsumeScheduledLaunch={() => setScheduledExamLaunch(null)}
                 onAttemptComplete={(nextUser, nextTraj) => {
                   setUser(nextUser);
                   setTrajectory(nextTraj);
@@ -425,6 +543,19 @@ export default function App() {
 
             {view === 'progress' && (
               <div className="space-y-6" data-testid="student-progress-view">
+                {user.role === 'parent' && (
+                  <ParentLearningPlanner
+                    user={user}
+                    subjects={subjects}
+                    topics={topics}
+                    subtopics={subtopics}
+                    selectedStudentId={selectedChildId}
+                    onSelectStudentId={handleSelectParentChild}
+                    links={guardianLinks}
+                    onLinksUpdated={() => loadWorkspaceData(user, true, selectedChildId)}
+                  />
+                )}
+
                 {trajectory && (
                   <SubjectProficiencyRadar
                     attempts={attempts}
@@ -536,9 +667,48 @@ export default function App() {
                 onOpenDocs={() => setView('system')}
               />
             )}
+            {/* GUARDIAN QUICK ACTION ON PROGRESS */}
+            {user.role === 'parent' && view === 'progress' && (
+              <div className="mt-6 bg-white rounded-3xl border border-[#DCEBFA] p-6 flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-base font-display font-bold text-[#0F2942]">
+                    Guardian-Assisted Student Authenticator &amp; Security
+                  </h3>
+                  <p className="text-xs text-[#526A84]">
+                    Enroll or recover Google Authenticator on behalf of your linked Grade 5 child and review verified family recovery contacts.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForceTotpOnboarding(true);
+                    setSecurityModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-[#6D28D9] hover:bg-[#5B21B6] rounded-xl shrink-0"
+                >
+                  Open Guardian Security Controls
+                </button>
+              </div>
+            )}
           </main>
         </div>
       </div>
+
+      <AccountSecurityModal
+        open={securityModalOpen}
+        user={user}
+        forceTotpOnboarding={forceTotpOnboarding}
+        onClose={() => {
+          setSecurityModalOpen(false);
+          setForceTotpOnboarding(false);
+        }}
+        onUserUpdated={(updated) => {
+          setUser(updated);
+          if (updated.totpEnabled) {
+            setForceTotpOnboarding(false);
+          }
+        }}
+      />
     </div>
   );
 }

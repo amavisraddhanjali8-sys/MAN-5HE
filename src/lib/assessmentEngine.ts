@@ -6,9 +6,11 @@ import type {
   AssessmentStatus,
   DifficultyTier,
   QuestionApprovalStatus,
+  QuestionHistoryFilterMode,
   QuestionType,
   QuizItem,
   StudentQuizView,
+  UserRole,
 } from './types.ts';
 
 // --- Question Lifecycle State Machine ---
@@ -22,14 +24,14 @@ const QUESTION_TRANSITIONS: Record<QuestionApprovalStatus, QuestionApprovalStatu
 };
 
 export function validateQuestionTransition(params: {
-  actorRole: 'admin' | 'teacher' | 'student';
+  actorRole: UserRole;
   isAuthor: boolean;
   fromStatus: QuestionApprovalStatus;
   toStatus: QuestionApprovalStatus;
 }): { ok: boolean; reason?: string } {
   const { actorRole, isAuthor, fromStatus, toStatus } = params;
-  if (actorRole === 'student') {
-    return { ok: false, reason: 'Students cannot alter question lifecycle states.' };
+  if (actorRole === 'student' || actorRole === 'parent') {
+    return { ok: false, reason: 'Students and parents cannot alter question lifecycle states.' };
   }
   const allowedTargets = QUESTION_TRANSITIONS[fromStatus] || [];
   if (!allowedTargets.includes(toStatus)) {
@@ -61,8 +63,8 @@ export function canActorModifyQuestion(params: {
   question: QuizItem;
 }): { canEdit: boolean; reason?: string } {
   const { ctx, question } = params;
-  if (ctx.role === 'student') {
-    return { canEdit: false, reason: 'Students cannot edit questions.' };
+  if (ctx.role === 'student' || ctx.role === 'parent') {
+    return { canEdit: false, reason: 'Students and parents cannot edit questions.' };
   }
   const subjectId = resolveQuestionSubjectId(question);
   if (ctx.role === 'teacher' && !canAccessSubject(ctx, subjectId)) {
@@ -108,13 +110,13 @@ const ASSESSMENT_TRANSITIONS: Record<AssessmentStatus, AssessmentStatus[]> = {
 };
 
 export function validateAssessmentTransition(params: {
-  actorRole: 'admin' | 'teacher' | 'student';
+  actorRole: UserRole;
   isAuthor: boolean;
   fromStatus: AssessmentStatus;
   toStatus: AssessmentStatus;
 }): { ok: boolean; reason?: string } {
-  if (params.actorRole === 'student') {
-    return { ok: false, reason: 'Students cannot change assessment workflow state.' };
+  if (params.actorRole === 'student' || params.actorRole === 'parent') {
+    return { ok: false, reason: 'Students and parents cannot change assessment workflow state.' };
   }
   const allowed = ASSESSMENT_TRANSITIONS[params.fromStatus] || [];
   if (!allowed.includes(params.toStatus)) {
@@ -142,7 +144,20 @@ export interface QuestionSelectionRequest {
   grade?: string;
   questionTypes?: QuestionType[];
   cognitiveSkills?: string[];
+  difficultyTiers?: DifficultyTier[];
   difficultyDistribution?: Partial<Record<DifficultyTier, number>>;
+  learningObjectiveQuery?: string;
+  minMarks?: number;
+  maxMarks?: number;
+  minEstimatedSeconds?: number;
+  maxEstimatedSeconds?: number;
+  historyMode?: QuestionHistoryFilterMode;
+  attemptedQuestionIds?: Set<string>;
+  incorrectQuestionIds?: Set<string>;
+  repeatedErrorQuestionIds?: Set<string>;
+  revisionDueQuestionIds?: Set<string>;
+  weakTopicIds?: Set<string>;
+  balanceByTopic?: boolean;
   count: number;
   mode: AssessmentSelectionMode;
   seed: number;
@@ -169,7 +184,20 @@ export function selectQuestionsForAssessment(
     grade = 'Grade 5',
     questionTypes = [],
     cognitiveSkills = [],
+    difficultyTiers = [],
     difficultyDistribution,
+    learningObjectiveQuery = '',
+    minMarks,
+    maxMarks,
+    minEstimatedSeconds,
+    maxEstimatedSeconds,
+    historyMode = 'all',
+    attemptedQuestionIds,
+    incorrectQuestionIds,
+    repeatedErrorQuestionIds,
+    revisionDueQuestionIds,
+    weakTopicIds,
+    balanceByTopic = false,
     count,
     mode,
     seed,
@@ -204,7 +232,9 @@ export function selectQuestionsForAssessment(
   const topicFilter = new Set(topicIds.filter(Boolean));
   const subtopicFilter = new Set(subtopicIds.filter(Boolean));
   const typeFilter = new Set(questionTypes);
+  const tierFilter = new Set(difficultyTiers);
   const skillFilter = new Set(cognitiveSkills.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const loNeedle = learningObjectiveQuery.trim().toLowerCase();
 
   // Strictly filter eligible pool; NEVER silently substitute unapproved/unauthorized items
   const seenIds = new Set<string>();
@@ -227,9 +257,33 @@ export function selectQuestionsForAssessment(
     const qType = q.questionType || 'mcq';
     if (typeFilter.size > 0 && !typeFilter.has(qType)) continue;
 
+    if (tierFilter.size > 0 && !tierFilter.has(q.attributes.difficultyTier)) continue;
+
     if (skillFilter.size > 0) {
       const qSkill = (q.cognitiveSkill || q.attributes.cognitiveDomain || '').toLowerCase();
       if (!skillFilter.has(qSkill)) continue;
+    }
+
+    if (loNeedle) {
+      const hay = `${q.learningObjectives || ''} ${q.memoryTrickTitle || ''} ${q.questionEn || ''}`.toLowerCase();
+      if (!hay.includes(loNeedle)) continue;
+    }
+
+    const qMarks = Number(q.defaultMarks ?? 1);
+    if (typeof minMarks === 'number' && qMarks < minMarks) continue;
+    if (typeof maxMarks === 'number' && qMarks > maxMarks) continue;
+
+    const qTime = Number(q.attributes.estimatedSeconds || 45);
+    if (typeof minEstimatedSeconds === 'number' && qTime < minEstimatedSeconds) continue;
+    if (typeof maxEstimatedSeconds === 'number' && qTime > maxEstimatedSeconds) continue;
+
+    if (historyMode === 'unattempted' && attemptedQuestionIds?.has(q.id)) continue;
+    if (historyMode === 'previously_attempted' && !attemptedQuestionIds?.has(q.id)) continue;
+    if (historyMode === 'previously_incorrect' && !incorrectQuestionIds?.has(q.id)) continue;
+    if (historyMode === 'repeated_error' && !repeatedErrorQuestionIds?.has(q.id)) continue;
+    if (historyMode === 'revision_due' && !revisionDueQuestionIds?.has(q.id)) continue;
+    if (historyMode === 'weak_areas' && weakTopicIds && weakTopicIds.size > 0) {
+      if (!q.topicId || !weakTopicIds.has(q.topicId)) continue;
     }
 
     if (excludedQuestionIds && excludedQuestionIds.has(q.id)) continue;
@@ -255,6 +309,30 @@ export function selectQuestionsForAssessment(
         if (wB !== wA) return wB - wA;
         return a.id.localeCompare(b.id);
       });
+    }
+    if (balanceByTopic) {
+      const shuffled = seededShuffle(items, localSeed);
+      const buckets = new Map<string, QuizItem[]>();
+      for (const it of shuffled) {
+        const key = it.topicId || resolveQuestionSubjectId(it);
+        const arr = buckets.get(key) || [];
+        arr.push(it);
+        buckets.set(key, arr);
+      }
+      const balanced: QuizItem[] = [];
+      const keys = Array.from(buckets.keys());
+      let added = true;
+      while (added) {
+        added = false;
+        for (const k of keys) {
+          const next = buckets.get(k)?.shift();
+          if (next) {
+            balanced.push(next);
+            added = true;
+          }
+        }
+      }
+      return balanced;
     }
     return seededShuffle(items, localSeed);
   };
@@ -532,6 +610,7 @@ export interface ParsedBulkQuestionInput {
   options: [string, string, string, string];
   correctIndex: number;
   acceptedAnswers: string[];
+  markingRule?: QuizItem['markingRule'];
   defaultMarks: number;
   cognitiveSkill: string;
   learningObjectives: string;
@@ -635,11 +714,20 @@ export function parseBulkQuestionsPayload(params: {
         : obj.acceptedAnswer
         ? [String(obj.acceptedAnswer).trim()]
         : [];
+      const markingRule =
+        obj.markingRule && typeof obj.markingRule === 'object'
+          ? (obj.markingRule as QuizItem['markingRule'])
+          : undefined;
+      const requiresManualReview = Boolean(markingRule?.requiresManualReview);
 
-      if ((qType === 'numerical' || qType === 'short_answer') && acceptedAnswers.length === 0) {
+      if (
+        (qType === 'numerical' || qType === 'short_answer') &&
+        acceptedAnswers.length === 0 &&
+        !requiresManualReview
+      ) {
         errors.push({
           rowNumber: rowNum,
-          error: `${qType} requires acceptedAnswers or acceptedAnswer.`,
+          error: `${qType} requires acceptedAnswers or acceptedAnswer unless requiresManualReview is true.`,
         });
         return;
       }
@@ -656,6 +744,7 @@ export function parseBulkQuestionsPayload(params: {
         options,
         correctIndex: Math.max(0, Math.min(3, Number(obj.correctIndex ?? 0))),
         acceptedAnswers,
+        markingRule,
         defaultMarks: Math.max(1, Number(obj.defaultMarks ?? 1)),
         cognitiveSkill: String(obj.cognitiveSkill || 'Application').trim(),
         learningObjectives: String(obj.learningObjectives || '').trim(),
@@ -701,22 +790,61 @@ export function parseBulkQuestionsPayload(params: {
       errors.push({ rowNumber: i + 1, error: 'Missing subjectId or questionSi.' });
       continue;
     }
-
-    const options: [string, string, string, string] = [
-      get('optionA') || (qType === 'true_false' ? 'True' : ''),
-      get('optionB') || (qType === 'true_false' ? 'False' : ''),
-      get('optionC'),
-      get('optionD'),
-    ];
-    if (qType === 'mcq' && options.some((o) => !o)) {
-      errors.push({ rowNumber: i + 1, error: 'MCQ CSV row requires optionA, optionB, optionC, optionD.' });
+    if (!['mcq', 'numerical', 'true_false', 'short_answer'].includes(qType)) {
+      errors.push({ rowNumber: i + 1, error: `Unsupported questionType: ${qType}` });
       continue;
     }
 
-    const acceptedRaw = get('acceptedAnswers');
+    const pipeOptions = get('options')
+      ? get('options').split('|').map((s) => s.trim())
+      : [];
+    const options: [string, string, string, string] =
+      qType === 'true_false'
+        ? [
+            get('optionA') || pipeOptions[0] || 'True',
+            get('optionB') || pipeOptions[1] || 'False',
+            '',
+            '',
+          ]
+        : [
+            get('optionA') || pipeOptions[0] || '',
+            get('optionB') || pipeOptions[1] || '',
+            get('optionC') || pipeOptions[2] || '',
+            get('optionD') || pipeOptions[3] || '',
+          ];
+    if (qType === 'mcq' && options.some((o) => !o)) {
+      errors.push({
+        rowNumber: i + 1,
+        error: 'MCQ CSV row requires optionA..optionD or pipe-delimited options (A|B|C|D).',
+      });
+      continue;
+    }
+
+    const acceptedRaw = get('acceptedAnswers') || get('acceptedAnswer');
     const acceptedAnswers = acceptedRaw
       ? acceptedRaw.split('|').map((s) => s.trim()).filter(Boolean)
       : [];
+    const requiresManualReview = get('requiresManualReview').toLowerCase() === 'true';
+    const tolStr = get('numericTolerance');
+    const markingRule: QuizItem['markingRule'] | undefined =
+      requiresManualReview || tolStr
+        ? {
+            requiresManualReview,
+            ...(tolStr ? { numericTolerance: Number(tolStr) } : {}),
+          }
+        : undefined;
+
+    if (
+      (qType === 'numerical' || qType === 'short_answer') &&
+      acceptedAnswers.length === 0 &&
+      !requiresManualReview
+    ) {
+      errors.push({
+        rowNumber: i + 1,
+        error: `${qType} CSV row requires acceptedAnswers unless requiresManualReview is true.`,
+      });
+      continue;
+    }
 
     items.push({
       rowNumber: i + 1,
@@ -724,14 +852,13 @@ export function parseBulkQuestionsPayload(params: {
       topicId: get('topicId') || undefined,
       subtopicId: get('subtopicId') || undefined,
       grade: get('grade') || 'Grade 5',
-      questionType: ['mcq', 'numerical', 'true_false', 'short_answer'].includes(qType)
-        ? qType
-        : 'mcq',
+      questionType: qType,
       questionSi,
       questionEn: get('questionEn') || questionSi,
       options,
       correctIndex: Math.max(0, Math.min(3, Number(get('correctIndex') || 0))),
       acceptedAnswers,
+      markingRule,
       defaultMarks: Math.max(1, Number(get('defaultMarks') || 1)),
       cognitiveSkill: get('cognitiveSkill') || 'Application',
       learningObjectives: get('learningObjectives'),

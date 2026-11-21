@@ -1,8 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildPasswordRecoveryEmailHtml,
   buildProgressEmailHtml,
+  buildSecurityAlertEmailHtml,
   buildWhatsAppProgressMessage,
+  buildWhatsAppRecoveryTemplatePayload,
 } from './notifications.ts';
 import type { AttemptRecord, StudentTrajectory } from './types.ts';
 
@@ -92,5 +95,37 @@ describe('automated practice & mock paper notifications', () => {
     assert.ok(emailHtml.includes('88%'));
     assert.ok(waText.includes('Timed Exam'));
     assert.ok(waText.includes('7/8 (88%)'));
+  });
+
+  it('builds responsive recovery emails with escaping and redacted WhatsApp recovery logs', () => {
+    const recHtml = buildPasswordRecoveryEmailHtml({
+      recipientName: 'Sayuri <script>alert(1)</script>',
+      purposeTitle: 'Password Recovery Verification',
+      otpCode: '739104',
+      expiresInMinutes: 5,
+      userIdCode: 'M5-2026-001',
+      supportEmail: 'support@man5he.lk',
+    });
+    assert.equal(recHtml.includes('<script>'), false);
+    assert.ok(recHtml.includes('739104'));
+    assert.ok(recHtml.includes('5 minutes'));
+    assert.ok(recHtml.includes('support@man5he.lk'));
+
+    const alertHtml = buildSecurityAlertEmailHtml({
+      recipientName: 'Sayuri Perera',
+      headline: 'Password Changed',
+      summary: 'All other active sessions were signed out.',
+      actionTimeIso: '2026-11-21T03:00:00.000Z',
+    });
+    assert.ok(alertHtml.includes('Password Changed'));
+
+    const waPayload = buildWhatsAppRecoveryTemplatePayload({
+      otpCode: '739104',
+      expiresInMinutes: 5,
+      maskedDestination: '+94******67',
+    });
+    assert.equal(waPayload.templateName, 'man5he_auth_otp_v1');
+    assert.equal(waPayload.components[0]?.parameters[0]?.text, '739104');
+    assert.equal(waPayload.redactedAuditSummary.includes('739104'), false);
   });
 });

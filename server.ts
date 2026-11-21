@@ -20,11 +20,14 @@ import {
   buildOtpAuthUri,
   createPaymentGatewaySignature,
   createSvgCaptcha,
+  decryptTotpSecret,
   generateEmailOtp,
   generateTotpCode,
   generateTotpSecret,
+  getTotpEncryptionMasterKey,
   hashPassword,
   signPayload,
+  validatePasswordPolicy,
   verifyCaptchaAndRobot,
   verifyPassword,
   verifyPaymentGatewaySignature,
@@ -39,6 +42,11 @@ import { Man5heDatabase, resolveDefaultHierarchyForQuestion } from './src/server
 import { AcademicService, HttpError } from './src/server/academicService.ts';
 import { KnowledgeService } from './src/server/knowledgeService.ts';
 import { AssessmentService } from './src/server/assessmentService.ts';
+import { ParentIntelligenceService } from './src/server/parentIntelligenceService.ts';
+import {
+  IdentitySecurityService,
+  type DispatchedOtpEvent,
+} from './src/server/identitySecurityService.ts';
 import {
   GEMINI_KNOWLEDGE_MODEL,
   generateEducationalKnowledgeDraft,
@@ -48,6 +56,7 @@ import type {
   AttemptRecord,
   DifficultyTier,
   InterventionStatus,
+  PaperCategoryLevel,
   QuizItem,
   StudentQuizView,
   UserAccount,
@@ -61,11 +70,76 @@ const PAYHERE_SECRET = process.env.PAYHERE_MERCHANT_SECRET || 'man5he-payhere-sa
 const ENABLE_EMAIL_OTP = process.env.ENABLE_EMAIL_OTP === 'true';
 const ENABLE_TOTP = process.env.ENABLE_TOTP === 'true';
 const MFA_ENABLED = ENABLE_EMAIL_OTP || ENABLE_TOTP;
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 const database = new Man5heDatabase();
 const service = new AcademicService(database);
 const knowledgeService = new KnowledgeService(service);
 const assessmentService = new AssessmentService(database, service);
+const parentIntelligenceService = new ParentIntelligenceService(database, service);
+assessmentService.setOnAttemptCompletedHook((attemptId, stage) => {
+  void parentIntelligenceService.generateReportForAssessmentAttempt(attemptId, {
+    sendCompletionNoticeIfPending: stage === 'submitted',
+    useAiAdaptation: isGeminiConfigured(),
+  });
+});
+
+// Non-persistent dev-only recovery email preview buffer (NEVER persisted to SQLite logs)
+const devSandboxRecoveryEmails: {
+  id: string;
+  toEmail: string;
+  subject: string;
+  category: string;
+  otpCode?: string;
+  htmlBody: string;
+  sentAt: string;
+  expiresMs: number;
+}[] = [];
+
+const identityService = new IdentitySecurityService(database, service, {
+  sessionSecret: AUTH_SECRET,
+  onDispatchOtp: (event: DispatchedOtpEvent) => {
+    if (!IS_PROD && event.channel === 'email' && event.emailHtml) {
+      devSandboxRecoveryEmails.unshift({
+        id: `DEVMAIL-${crypto.randomBytes(4).toString('hex')}`,
+        toEmail: event.destination,
+        subject: event.emailSubject || 'Verification Security Code · මං 5හේ',
+        category: event.purpose,
+        otpCode: event.otpCode,
+        htmlBody: event.emailHtml,
+        sentAt: new Date().toISOString(),
+        expiresMs: Date.now() + 10 * 60 * 1000,
+      });
+      if (devSandboxRecoveryEmails.length > 25) devSandboxRecoveryEmails.length = 25;
+    }
+  },
+});
+
+const ipRateBuckets = new Map<string, number[]>();
+function rateLimitAuth(bucket: string, maxOverride?: number) {
+  const windowMs = Math.max(10_000, Number(process.env.RATE_LIMIT_WINDOW_MS || 900_000));
+  const maxAttempts = maxOverride || Math.max(5, Number(process.env.RATE_LIMIT_MAX_ATTEMPTS || 20));
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = `${bucket}:${getClientIp(req)}`;
+    const now = Date.now();
+    const recent = (ipRateBuckets.get(key) || []).filter((t) => now - t < windowMs);
+    if (recent.length >= maxAttempts) {
+      res.status(429).json({
+        error: 'Too many authentication or recovery attempts from this address. Please try again later.',
+      });
+      return;
+    }
+    recent.push(now);
+    ipRateBuckets.set(key, recent);
+    next();
+  };
+}
+
+function getClientIp(req: express.Request): string {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.trim()) return fwd.split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
 
 // Short-lived in-memory challenge maps for Email OTPs & Pending Registrations
 const pendingRegistrations = new Map<
@@ -86,7 +160,9 @@ const pendingLoginOtps = new Map<
   string,
   {
     userId: string;
-    emailOtp: string;
+    emailOtp: string | null;
+    requireEmailOtp: boolean;
+    requireTotp: boolean;
     expiresAt: number;
   }
 >();
@@ -113,17 +189,47 @@ const pendingCheckouts = new Map<
   }
 >();
 
-type AuthedRequest = express.Request & { authUser: UserAccount };
+type AuthedRequest = express.Request & { authUser: UserAccount; authJti?: string };
 
-function getAuthenticatedUser(req: express.Request): UserAccount | null {
+function getAuthenticatedContext(
+  req: express.Request
+): { user: UserAccount; jti?: string } | null {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   if (!token) return null;
-  const payload = verifySignedPayload<{ userId: string; exp: number }>(token, AUTH_SECRET);
+  const payload = verifySignedPayload<{ userId: string; jti?: string; exp: number }>(
+    token,
+    AUTH_SECRET
+  );
   if (!payload || Date.now() > payload.exp) return null;
   const user = service.getUserById(payload.userId);
   if (!user || user.active === false) return null;
-  return user;
+  if (payload.jti && !identityService.isSessionValid(user.id, payload.jti)) {
+    return null;
+  }
+  return { user, jti: payload.jti };
+}
+
+function issueSessionToken(req: express.Request, user: UserAccount): string {
+  const ttlMs = 24 * 60 * 60 * 1000;
+  const jti = crypto.randomBytes(12).toString('hex');
+  identityService.createAuthSession({
+    userId: user.id,
+    tokenJti: jti,
+    ipAddress: getClientIp(req),
+    userAgent: String(req.headers['user-agent'] || ''),
+    expiresAtMs: Date.now() + ttlMs,
+  });
+  return signPayload(
+    { userId: user.id, role: user.role, jti, exp: Date.now() + ttlMs },
+    AUTH_SECRET
+  );
+}
+
+function isTotpEnrollmentRequiredForUser(user: UserAccount): boolean {
+  if (user.role === 'admin') return false;
+  if (process.env.TOTP_MANDATORY_NON_ADMIN === 'false') return false;
+  return !user.totpEnabled;
 }
 
 function requireAuth(
@@ -131,12 +237,13 @@ function requireAuth(
   res: express.Response,
   next: express.NextFunction
 ) {
-  const user = getAuthenticatedUser(req);
-  if (!user) {
+  const ctx = getAuthenticatedContext(req);
+  if (!ctx) {
     res.status(401).json({ error: 'Authentication required. Please log in.' });
     return;
   }
-  (req as AuthedRequest).authUser = user;
+  (req as AuthedRequest).authUser = ctx.user;
+  (req as AuthedRequest).authJti = ctx.jti;
   next();
 }
 
@@ -145,16 +252,17 @@ function requireAdmin(
   res: express.Response,
   next: express.NextFunction
 ) {
-  const user = getAuthenticatedUser(req);
-  if (!user) {
+  const ctx = getAuthenticatedContext(req);
+  if (!ctx) {
     res.status(401).json({ error: 'Authentication required.' });
     return;
   }
-  if (user.role !== 'admin') {
+  if (ctx.user.role !== 'admin') {
     res.status(403).json({ error: 'Admin role required to access this resource.' });
     return;
   }
-  (req as AuthedRequest).authUser = user;
+  (req as AuthedRequest).authUser = ctx.user;
+  (req as AuthedRequest).authJti = ctx.jti;
   next();
 }
 
@@ -163,16 +271,17 @@ function requireTeacherOrAdmin(
   res: express.Response,
   next: express.NextFunction
 ) {
-  const user = getAuthenticatedUser(req);
-  if (!user) {
+  const ctx = getAuthenticatedContext(req);
+  if (!ctx) {
     res.status(401).json({ error: 'Authentication required.' });
     return;
   }
-  if (user.role !== 'admin' && user.role !== 'teacher') {
+  if (ctx.user.role !== 'admin' && ctx.user.role !== 'teacher') {
     res.status(403).json({ error: 'Teacher or Administrator authorization required.' });
     return;
   }
-  (req as AuthedRequest).authUser = user;
+  (req as AuthedRequest).authUser = ctx.user;
+  (req as AuthedRequest).authJti = ctx.jti;
   next();
 }
 
@@ -248,6 +357,16 @@ async function startServer() {
         return;
       }
 
+      const pwPolicy = validatePasswordPolicy(String(password || ''), {
+        username: cleanCode,
+        email: cleanEmail,
+        userIdCode: cleanCode,
+      });
+      if (!pwPolicy.ok) {
+        res.status(400).json({ error: pwPolicy.errors[0] });
+        return;
+      }
+
       const exists =
         service.getUserByIdentifier(cleanEmail) || service.getUserByIdentifier(cleanCode);
       if (exists) {
@@ -275,11 +394,13 @@ async function startServer() {
           messageText: `🌟 Welcome to මං 5හේ, ${newUser.name}! Account ${newUser.userIdCode} is ready. Complete a plan checkout to unlock all 500,000+ shuffled Grade 5 quizzes.`,
         });
 
-        const token = signPayload(
-          { userId: newUser.id, role: newUser.role, exp: Date.now() + 24 * 60 * 60 * 1000 },
-          AUTH_SECRET
-        );
-        res.json({ mfaRequired: false, token, user: service.sanitizeUser(newUser) });
+        const token = issueSessionToken(req, newUser);
+        res.json({
+          mfaRequired: false,
+          token,
+          user: service.sanitizeUser(newUser),
+          totpEnrollmentRequired: isTotpEnrollmentRequiredForUser(newUser),
+        });
         return;
       }
 
@@ -360,18 +481,19 @@ async function startServer() {
         messageText: `🌟 Welcome to මං 5හේ, ${newUser.name}! Account ${newUser.userIdCode} is verified.`,
       });
 
-      const token = signPayload(
-        { userId: newUser.id, role: newUser.role, exp: Date.now() + 24 * 60 * 60 * 1000 },
-        AUTH_SECRET
-      );
-      res.json({ token, user: service.sanitizeUser(newUser) });
+      const token = issueSessionToken(req, newUser);
+      res.json({
+        token,
+        user: service.sanitizeUser(newUser),
+        totpEnrollmentRequired: isTotpEnrollmentRequiredForUser(newUser),
+      });
     } catch (err) {
       handleServiceError(res, err);
     }
   });
 
   // --- Login ---
-  app.post('/api/auth/login/step1', (req, res) => {
+  app.post('/api/auth/login/step1', rateLimitAuth('login', 25), (req, res) => {
     const {
       identifier,
       password,
@@ -395,7 +517,7 @@ async function startServer() {
 
     const user = service.getUserByIdentifier(String(identifier || ''));
     if (!user || !verifyPassword(String(password || ''), user.passwordHash)) {
-      res.status(401).json({ error: 'Invalid User ID / Email or Password.' });
+      res.status(401).json({ error: 'Invalid User ID / Username / Email or Password.' });
       return;
     }
     if (user.active === false) {
@@ -403,57 +525,75 @@ async function startServer() {
       return;
     }
 
-    if (!MFA_ENABLED) {
-      const token = signPayload(
-        { userId: user.id, role: user.role, exp: Date.now() + 24 * 60 * 60 * 1000 },
-        AUTH_SECRET
-      );
+    const requireEmailOtp = ENABLE_EMAIL_OTP;
+    const requireTotp = ENABLE_TOTP || user.totpEnabled;
+
+    if (!requireEmailOtp && !requireTotp) {
+      const token = issueSessionToken(req, user);
+      identityService.recordSecurityEvent({
+        userId: user.id,
+        eventType: 'LOGIN_SUCCESS',
+        severity: 'info',
+        ipAddress: getClientIp(req),
+        summary: 'Signed in with password + CAPTCHA verification.',
+      });
       res.json({
         mfaRequired: false,
         token,
         user: service.sanitizeUser(user),
+        totpEnrollmentRequired: isTotpEnrollmentRequiredForUser(user),
       });
       return;
     }
 
     const loginChallengeId = `LGN-${crypto.randomBytes(8).toString('hex')}`;
-    const emailOtp = generateEmailOtp();
+    const emailOtp = requireEmailOtp ? generateEmailOtp() : null;
     pendingLoginOtps.set(loginChallengeId, {
       userId: user.id,
       emailOtp,
+      requireEmailOtp,
+      requireTotp,
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    service.recordEmailLog({
-      toEmail: user.email,
-      subject: `Login Security Code (${emailOtp}) · මං 5හේ`,
-      category: 'otp_login',
-      otpCode: emailOtp,
-      htmlBody: buildOtpEmailHtml({
-        recipientName: user.name,
-        purpose: 'Secure Login',
+    if (requireEmailOtp && emailOtp) {
+      service.recordEmailLog({
+        toEmail: user.email,
+        subject: `Login Security Code (${emailOtp}) · මං 5හේ`,
+        category: 'otp_login',
         otpCode: emailOtp,
-        userIdCode: user.userIdCode,
-      }),
-    });
+        htmlBody: buildOtpEmailHtml({
+          recipientName: user.name,
+          purpose: 'Secure Login',
+          otpCode: emailOtp,
+          userIdCode: user.userIdCode,
+        }),
+      });
+    }
 
     res.json({
       mfaRequired: true,
+      requireEmailOtp,
+      requireTotp,
       loginChallengeId,
       maskedEmail: user.email,
       userName: user.name,
-      message: 'Credentials & CAPTCHA verified. Enter your Email OTP and Google Authenticator code.',
+      message: requireEmailOtp && requireTotp
+        ? 'Credentials verified. Enter your Email OTP and Google Authenticator code.'
+        : requireTotp
+        ? 'Credentials verified. Enter your 6-digit Google Authenticator code (or a backup recovery code).'
+        : 'Credentials verified. Enter the 6-digit Email OTP dispatched to your inbox.',
     });
   });
 
-  app.post('/api/auth/login/step2', (req, res) => {
-    const { loginChallengeId, emailOtp, totpCode } = req.body || {};
+  app.post('/api/auth/login/step2', rateLimitAuth('login-step2', 25), (req, res) => {
+    const { loginChallengeId, emailOtp, totpCode, backupCode } = req.body || {};
     const pending = pendingLoginOtps.get(String(loginChallengeId || ''));
     if (!pending || Date.now() > pending.expiresAt) {
       res.status(400).json({ error: 'Login verification session expired. Please sign in again.' });
       return;
     }
-    if (String(emailOtp || '').trim() !== pending.emailOtp) {
+    if (pending.requireEmailOtp && String(emailOtp || '').trim() !== pending.emailOtp) {
       res.status(400).json({ error: 'Incorrect Email Verification Code.' });
       return;
     }
@@ -462,32 +602,70 @@ async function startServer() {
       res.status(404).json({ error: 'User account not found.' });
       return;
     }
-    if (!verifyTotpCode(user.totpSecret, String(totpCode || ''), Date.now(), 1)) {
-      res.status(400).json({ error: 'Incorrect Google Authenticator 6-digit TOTP code.' });
-      return;
+    if (pending.requireTotp) {
+      const suppliedBackup = String(backupCode || '').trim() ||
+        (String(totpCode || '').trim().toUpperCase().startsWith('M5RC-') ? String(totpCode || '').trim() : '');
+      if (suppliedBackup && user.role !== 'admin') {
+        const consumed = identityService.consumeBackupCode(user.id, suppliedBackup, getClientIp(req));
+        if (!consumed) {
+          res.status(400).json({ error: 'Invalid or already consumed backup recovery code.' });
+          return;
+        }
+      } else {
+        const check = identityService.verifyTotpForUser(user, String(totpCode || ''), getClientIp(req));
+        if (!check.valid) {
+          res.status(400).json({ error: check.reason || 'Incorrect Google Authenticator 6-digit TOTP code.' });
+          return;
+        }
+      }
     }
 
     pendingLoginOtps.delete(String(loginChallengeId));
-    const token = signPayload(
-      { userId: user.id, role: user.role, exp: Date.now() + 24 * 60 * 60 * 1000 },
-      AUTH_SECRET
-    );
-    res.json({ token, user: service.sanitizeUser(user) });
+    const token = issueSessionToken(req, user);
+    identityService.recordSecurityEvent({
+      userId: user.id,
+      eventType: 'LOGIN_MFA_SUCCESS',
+      severity: 'info',
+      ipAddress: getClientIp(req),
+      summary: 'Completed multi-factor authentication sign-in.',
+    });
+    res.json({
+      token,
+      user: service.sanitizeUser(user),
+      totpEnrollmentRequired: isTotpEnrollmentRequiredForUser(user),
+    });
   });
 
   app.get('/api/auth/sandbox-inbox', (req, res) => {
-    const emailQuery = String(req.query.email || '').trim();
-    const emails = service.getEmailLogs(emailQuery || undefined).slice(0, 10);
-    res.json({ emails });
+    const emailQuery = String(req.query.email || '').trim().toLowerCase();
+    const dbEmails = service.getEmailLogs(emailQuery || undefined).slice(0, 10);
+    if (IS_PROD) {
+      res.json({ emails: dbEmails });
+      return;
+    }
+    const now = Date.now();
+    const activeDev = devSandboxRecoveryEmails.filter(
+      (e) => e.expiresMs > now && (!emailQuery || e.toEmail.toLowerCase().includes(emailQuery))
+    );
+    const merged = [...activeDev, ...dbEmails]
+      .sort((a, b) => Date.parse(b.sentAt) - Date.parse(a.sentAt))
+      .slice(0, 12);
+    res.json({ emails: merged });
   });
 
   app.get('/api/auth/demo-totp-helper', async (req, res) => {
+    if (IS_PROD) {
+      res.status(404).json({ error: 'Not available in production.' });
+      return;
+    }
     const identifier = String(req.query.identifier || '').trim().toLowerCase();
     const allowedDemo = [
       'sayuri@man5he.lk',
       'm5-2026-001',
       'kasun@man5he.lk',
       'm5-2026-002',
+      'parent@man5he.lk',
+      'm5-par-01',
       'teacher.math@man5he.lk',
       'm5-tch-01',
       'teacher.lang@man5he.lk',
@@ -504,13 +682,14 @@ async function startServer() {
       res.status(404).json({ error: 'Demo user not found.' });
       return;
     }
-    const otpAuthUri = buildOtpAuthUri(user.email, user.totpSecret, 'මං 5හේ Scholarship');
+    const plainSecret = decryptTotpSecret(user.totpSecret, getTotpEncryptionMasterKey());
+    const otpAuthUri = buildOtpAuthUri(user.email, plainSecret, 'මං 5හේ Scholarship');
     const qrDataUrl = await QRCode.toDataURL(otpAuthUri, { width: 160, margin: 1 });
-    const currentCode = generateTotpCode(user.totpSecret);
+    const currentCode = generateTotpCode(plainSecret);
     res.json({
       userIdCode: user.userIdCode,
       email: user.email,
-      totpSecret: user.totpSecret,
+      totpSecret: plainSecret,
       qrDataUrl,
       currentCode,
     });
@@ -518,12 +697,17 @@ async function startServer() {
 
   app.get('/api/auth/me', requireAuth, async (req, res) => {
     const user = (req as AuthedRequest).authUser;
-    const otpAuthUri = buildOtpAuthUri(user.email, user.totpSecret, 'මං 5හේ Scholarship');
-    const qrDataUrl = await QRCode.toDataURL(otpAuthUri, { width: 160, margin: 1 });
+    let qrDataUrl = '';
+    if (!user.totpEnabled && user.role !== 'admin') {
+      const plainSecret = decryptTotpSecret(user.totpSecret, getTotpEncryptionMasterKey());
+      const otpAuthUri = buildOtpAuthUri(user.email, plainSecret, 'මං 5හේ Scholarship');
+      qrDataUrl = await QRCode.toDataURL(otpAuthUri, { width: 160, margin: 1 });
+    }
     res.json({
       user: service.sanitizeUser(user),
+      totpEnrollmentRequired: isTotpEnrollmentRequiredForUser(user),
       totpSetup: {
-        secret: user.totpSecret,
+        secret: '',
         qrDataUrl,
       },
     });
@@ -580,9 +764,10 @@ async function startServer() {
       pendingPaymentOtps.delete(String(paymentOtpChallengeId));
     }
 
-    if (ENABLE_TOTP) {
-      if (!verifyTotpCode(user.totpSecret, String(totpCode || ''), Date.now(), 1)) {
-        res.status(400).json({ error: 'Invalid Google Authenticator TOTP code for payment.' });
+    if (ENABLE_TOTP || user.totpEnabled) {
+      const check = identityService.verifyTotpForUser(user, String(totpCode || ''), getClientIp(req));
+      if (!check.valid) {
+        res.status(400).json({ error: check.reason || 'Invalid Google Authenticator TOTP code for payment.' });
         return;
       }
     }
@@ -720,10 +905,14 @@ async function startServer() {
         })
       : null;
 
-    let curatedPool = service.listCuratedQuestions({
-      ...ctx,
-      role: 'student', // allow students all subjects in practice
-    });
+    let curatedPool = service.listCuratedQuestions(
+      {
+        ...ctx,
+        role: 'student', // allow students all subjects in practice
+      },
+      false,
+      true
+    );
 
     if (streamConfig && !questionIdParam) {
       const allowedSet = new Set(streamConfig.allowedTiers);
@@ -745,7 +934,15 @@ async function startServer() {
       curatedPool = curatedPool.filter((q) => q.subtopicId === subtopicIdParam);
     }
 
-    const pinnedQuiz = questionIdParam ? service.resolveQuizById(questionIdParam) : null;
+    const rawPinned = questionIdParam ? service.resolveQuizById(questionIdParam) : null;
+    const pinnedQuiz =
+      rawPinned &&
+      rawPinned.source === 'curated' &&
+      user.role === 'student' &&
+      rawPinned.approvalStatus &&
+      rawPinned.approvalStatus !== 'ACTIVE'
+        ? null
+        : rawPinned;
 
     const sampledVirtual: QuizItem[] = [];
     const tierFilter =
@@ -790,10 +987,18 @@ async function startServer() {
     });
   });
 
-  app.post('/api/quizzes/practice-complete', requireAuth, (req, res) => {
+  app.post('/api/quizzes/practice-complete', requireAuth, async (req, res) => {
     try {
       const user = (req as AuthedRequest).authUser;
-      const { totalQuestions, correctCount, timeSpentSeconds, domainBreakdown } = req.body || {};
+      const {
+        totalQuestions,
+        correctCount,
+        timeSpentSeconds,
+        domainBreakdown,
+        items,
+        paperTitle,
+        scheduledSessionId,
+      } = req.body || {};
 
       const totalQ = Math.max(1, Number(totalQuestions || 1));
       const correct = Math.min(totalQ, Math.max(0, Number(correctCount || 0)));
@@ -802,8 +1007,8 @@ async function startServer() {
 
       const { attempt, user: refreshedUser, trajectory } = service.recordRoundAttemptAndUpdateUser({
         user,
-        paperId: 'PRACTICE-500K',
-        paperTitle: '500K+ Shuffled Practice Round',
+        paperId: scheduledSessionId ? `SCH-${scheduledSessionId}` : 'PRACTICE-500K',
+        paperTitle: paperTitle ? String(paperTitle) : '500K+ Shuffled Practice Round',
         mode: 'practice',
         paperCategory: user.currentLevel,
         totalQuestions: totalQ,
@@ -822,9 +1027,45 @@ async function startServer() {
         whatsappCategory: 'milestone',
       });
 
+      let parentReportId: string | null = null;
+      if (Array.isArray(items) && items.length > 0) {
+        try {
+          const rpt = await parentIntelligenceService.createReportForRoundAttempt({
+            student: refreshedUser,
+            attempt,
+            items: items.map((it: Record<string, unknown>) => ({
+              quizId: String(it.quizId || ''),
+              selectedIndex:
+                typeof it.selectedIndex === 'number' ? it.selectedIndex : null,
+              isCorrect: Boolean(it.isCorrect),
+              hintsUsed: Boolean(it.hintsUsed),
+            })),
+            assessmentKind: 'practice_session',
+            sendNotifications: true,
+            useAiAdaptation: isGeminiConfigured(),
+          });
+          parentReportId = rpt.id;
+        } catch {
+          // do not fail practice completion if report build fails
+        }
+      }
+
+      if (scheduledSessionId) {
+        try {
+          parentIntelligenceService.completeScheduledSession(
+            refreshedUser,
+            String(scheduledSessionId),
+            attempt.id
+          );
+        } catch {
+          // ignore if session already completed or unauthorized
+        }
+      }
+
       res.json({
         attempt,
         trajectory,
+        parentReportId,
         user: service.sanitizeUser(refreshedUser),
         notificationsDispatched: {
           ...dispatch,
@@ -1066,10 +1307,10 @@ async function startServer() {
     });
   });
 
-  app.post('/api/papers/:id/submit', requireAuth, (req, res) => {
+  app.post('/api/papers/:id/submit', requireAuth, async (req, res) => {
     try {
       const user = (req as AuthedRequest).authUser;
-      const { sessionId, answers, perQuestionDurationsMs, timedOut } = req.body || {};
+      const { sessionId, answers, perQuestionDurationsMs, timedOut, scheduledSessionId } = req.body || {};
       const paper = service.getPaperById(String(req.params.id));
       if (!paper) {
         res.status(404).json({ error: 'Paper not found.' });
@@ -1171,10 +1412,42 @@ async function startServer() {
         whatsappCategory: 'exam_report',
       });
 
+      let parentReportId: string | null = null;
+      try {
+        const rpt = await parentIntelligenceService.createReportForRoundAttempt({
+          student: refreshedUser,
+          attempt,
+          items: reviewItems.map((ri) => ({
+            quizId: ri.quizId,
+            selectedIndex: ri.selectedIndex,
+            isCorrect: ri.isCorrect,
+          })),
+          assessmentKind: 'mock_exam',
+          sendNotifications: true,
+          useAiAdaptation: isGeminiConfigured(),
+        });
+        parentReportId = rpt.id;
+      } catch {
+        // do not block response
+      }
+
+      if (scheduledSessionId) {
+        try {
+          parentIntelligenceService.completeScheduledSession(
+            refreshedUser,
+            String(scheduledSessionId),
+            attempt.id
+          );
+        } catch {
+          // ignore
+        }
+      }
+
       res.json({
         attempt,
         trajectory,
         reviewItems,
+        parentReportId,
         user: service.sanitizeUser(refreshedUser),
         timedOutNotice: elapsedSeconds > timeLimitSeconds + 15,
         notificationsDispatched: {
@@ -1190,17 +1463,38 @@ async function startServer() {
 
   // --- Student, Scoped & Admin Analytics ---
   app.get('/api/analytics/student', requireAuth, (req, res) => {
-    const user = (req as AuthedRequest).authUser;
-    const attempts = service.getRoundAttemptsForUser(user.id);
-    const trajectory = evaluateStudentTrajectory(attempts, user.currentLevel);
-    const ctx = service.buildAuthContext(user);
-    const recentQuestionAnalytics = service.getScopedAnalytics(ctx);
-    res.json({
-      user: service.sanitizeUser(user),
-      attempts,
-      trajectory,
-      recentQuestionAnalytics,
-    });
+    try {
+      const user = (req as AuthedRequest).authUser;
+      const requestedStudentId = req.query.studentId ? String(req.query.studentId) : '';
+      let targetStudentId = user.id;
+      let targetLevel = user.currentLevel;
+      if (user.role === 'parent') {
+        const linked = parentIntelligenceService.getLinkedStudents(user).filter((l) => l.verified);
+        const selected = requestedStudentId
+          ? linked.find((l) => l.studentUserId === requestedStudentId)
+          : linked[0];
+        if (requestedStudentId && !selected) {
+          res.status(403).json({ error: 'Access denied: student is not verified on your guardian account.' });
+          return;
+        }
+        if (selected) {
+          targetStudentId = selected.studentUserId;
+          if (selected.studentCurrentLevel) targetLevel = selected.studentCurrentLevel;
+        }
+      }
+      const attempts = service.getRoundAttemptsForUser(targetStudentId);
+      const trajectory = evaluateStudentTrajectory(attempts, targetLevel);
+      const ctx = service.buildAuthContext(user);
+      const recentQuestionAnalytics = service.getScopedAnalytics(ctx);
+      res.json({
+        user: service.sanitizeUser(user),
+        attempts,
+        trajectory,
+        recentQuestionAnalytics,
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
   });
 
   app.patch('/api/analytics/daily-goal', requireAuth, (req, res) => {
@@ -1953,6 +2247,16 @@ async function startServer() {
     }
   });
 
+  app.post('/api/assessments/:id/new-version', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const actor = (req as AuthedRequest).authUser;
+      const assessment = assessmentService.createAssessmentNewVersion(actor, String(req.params.id));
+      res.status(201).json({ assessment });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
   app.get('/api/assessments/:id/export', requireTeacherOrAdmin, (req, res) => {
     try {
       const actor = (req as AuthedRequest).authUser;
@@ -2044,6 +2348,20 @@ async function startServer() {
     }
   });
 
+  app.post('/api/assessments/:id/check-answer', requireAuth, (req, res) => {
+    try {
+      const user = (req as AuthedRequest).authUser;
+      const result = assessmentService.checkPracticeQuestionAnswer(
+        user,
+        String(req.params.id),
+        req.body || {}
+      );
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
   app.post('/api/assessments/:id/submit', requireAuth, (req, res) => {
     try {
       const user = (req as AuthedRequest).authUser;
@@ -2068,10 +2386,636 @@ async function startServer() {
     }
   });
 
-  // Periodic scheduler for future-scheduled publications (idempotent)
+  // --- Enhancement 04: Secure Account Recovery, Identity Management & Google Authenticator ---
+  app.post('/api/auth/logout', requireAuth, (req, res) => {
+    const { authUser, authJti } = req as AuthedRequest;
+    if (authJti) {
+      const row = database.db
+        .prepare('SELECT id FROM auth_sessions WHERE token_jti = ? AND user_id = ? AND revoked_at IS NULL')
+        .get(authJti, authUser.id) as { id: string } | undefined;
+      if (row) {
+        identityService.revokeSession(authUser.id, row.id, 'user_logout');
+      }
+    }
+    res.json({ ok: true });
+  });
+
+  app.post('/api/auth/recovery/request', rateLimitAuth('recovery-request', 10), (req, res) => {
+    try {
+      const { identifier, channel, resendChallengeId } = req.body || {};
+      const result = identityService.requestRecoveryChallenge({
+        identifier: String(identifier || ''),
+        channel: channel === 'whatsapp' ? 'whatsapp' : 'email',
+        resendChallengeId: resendChallengeId ? String(resendChallengeId) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/auth/recovery/verify', rateLimitAuth('recovery-verify', 15), (req, res) => {
+    try {
+      const { challengeId, identifier, otpCode, totpCode, backupCode } = req.body || {};
+      const result = identityService.verifyRecoveryChallenge({
+        challengeId: String(challengeId || ''),
+        identifier: identifier ? String(identifier) : undefined,
+        otpCode: String(otpCode || ''),
+        totpCode: totpCode ? String(totpCode) : undefined,
+        backupCode: backupCode ? String(backupCode) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/auth/recovery/reset-password', rateLimitAuth('recovery-reset', 10), (req, res) => {
+    try {
+      const { resetToken, newPassword, totpCode, backupCode } = req.body || {};
+      const result = identityService.completePasswordReset({
+        resetToken: String(resetToken || ''),
+        newPassword: String(newPassword || ''),
+        totpCode: totpCode ? String(totpCode) : undefined,
+        backupCode: backupCode ? String(backupCode) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/auth/recovery/authenticator', rateLimitAuth('recovery-totp', 10), async (req, res) => {
+    try {
+      const { identifier, password, mode, backupCode, reason } = req.body || {};
+      const result = await identityService.recoverAuthenticator({
+        identifier: String(identifier || ''),
+        password: String(password || ''),
+        mode: mode === 'backup_code' ? 'backup_code' : 'admin_request',
+        backupCode: backupCode ? String(backupCode) : undefined,
+        reason: reason ? String(reason) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/auth/admin-recovery', rateLimitAuth('admin-recovery', 5), (req, res) => {
+    try {
+      const { identifier, adminRecoveryKey, newPassword, verificationNote } = req.body || {};
+      const result = identityService.completeProtectedAdminRecovery({
+        identifier: String(identifier || ''),
+        adminRecoveryKey: String(adminRecoveryKey || ''),
+        newPassword: String(newPassword || ''),
+        verificationNote: verificationNote ? String(verificationNote) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/account/security', requireAuth, (req, res) => {
+    try {
+      const { authUser, authJti } = req as AuthedRequest;
+      res.json(identityService.getAccountSecurityStatus(authUser, authJti));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/password/change', requireAuth, (req, res) => {
+    try {
+      const { authUser, authJti } = req as AuthedRequest;
+      const { currentPassword, newPassword, totpCode, revokeOtherSessions } = req.body || {};
+      const result = identityService.changePassword(authUser, {
+        currentPassword: String(currentPassword || ''),
+        newPassword: String(newPassword || ''),
+        totpCode: totpCode ? String(totpCode) : undefined,
+        revokeOtherSessions: revokeOtherSessions !== false,
+        currentJti: authJti,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/account/username', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { newUsername, currentPassword, totpCode } = req.body || {};
+      const updated = identityService.changeUsername(authUser, {
+        newUsername: String(newUsername || ''),
+        currentPassword: currentPassword !== undefined ? String(currentPassword) : undefined,
+        totpCode: totpCode ? String(totpCode) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json({ user: service.sanitizeUser(updated) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/contacts/request-change', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const {
+        channel,
+        newContact,
+        currentPassword,
+        totpCode,
+        lostOldContact,
+        verificationNotes,
+      } = req.body || {};
+      const result = identityService.requestContactChange(authUser, {
+        channel: channel === 'whatsapp' ? 'whatsapp' : 'email',
+        newContact: String(newContact || ''),
+        currentPassword: String(currentPassword || ''),
+        totpCode: totpCode ? String(totpCode) : undefined,
+        lostOldContact: Boolean(lostOldContact),
+        verificationNotes: verificationNotes ? String(verificationNotes) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/contacts/confirm-change', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { requestId, otpCode } = req.body || {};
+      const updated = identityService.confirmContactChange(authUser, {
+        requestId: String(requestId || ''),
+        otpCode: String(otpCode || ''),
+        ipAddress: getClientIp(req),
+      });
+      res.json({ user: service.sanitizeUser(updated) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/totp/enroll/start', requireAuth, async (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { targetStudentId, currentPassword, currentTotpCode } = req.body || {};
+      const setup = await identityService.startTotpEnrollment(authUser, {
+        targetStudentId: targetStudentId ? String(targetStudentId) : undefined,
+        currentPassword: currentPassword ? String(currentPassword) : undefined,
+        currentTotpCode: currentTotpCode ? String(currentTotpCode) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(setup);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/totp/enroll/confirm', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { code, targetStudentId } = req.body || {};
+      const result = identityService.confirmTotpEnrollment(authUser, {
+        code: String(code || ''),
+        targetStudentId: targetStudentId ? String(targetStudentId) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      const updated = service.getUserById(authUser.id)!;
+      res.json({ ...result, user: service.sanitizeUser(updated) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/totp/backup-codes/regenerate', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { currentPassword, totpCode } = req.body || {};
+      const result = identityService.regenerateBackupCodes(authUser, {
+        currentPassword: String(currentPassword || ''),
+        totpCode: String(totpCode || ''),
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/guardian/recover-child-totp', requireAuth, async (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { studentId, parentPassword, parentTotpCode } = req.body || {};
+      const result = await identityService.guardianRecoverChildTotp(authUser, {
+        studentId: String(studentId || ''),
+        parentPassword: String(parentPassword || ''),
+        parentTotpCode: parentTotpCode ? String(parentTotpCode) : undefined,
+        ipAddress: getClientIp(req),
+      });
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.delete('/api/account/sessions/:id', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      identityService.revokeSession(authUser.id, String(req.params.id), 'user_revoked');
+      res.json({ ok: true });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/account/sessions/revoke-others', requireAuth, (req, res) => {
+    try {
+      const { authUser, authJti } = req as AuthedRequest;
+      const revokedCount = identityService.revokeOtherSessions(
+        authUser.id,
+        authJti,
+        'user_revoked_other_devices'
+      );
+      res.json({ ok: true, revokedCount });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/admin/recovery-requests', requireAdmin, (req, res) => {
+    try {
+      const admin = (req as AuthedRequest).authUser;
+      res.json({ requests: identityService.listAdminRecoveryRequests(admin) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/admin/recovery-requests/:id/review', requireAdmin, (req, res) => {
+    try {
+      const admin = (req as AuthedRequest).authUser;
+      const { decision, notes, newContactOverride } = req.body || {};
+      const updated = identityService.reviewAdminRecoveryRequest(
+        admin,
+        String(req.params.id),
+        {
+          decision: decision === 'REJECT' ? 'REJECT' : 'APPROVE',
+          notes: String(notes || ''),
+          newContactOverride: newContactOverride ? String(newContactOverride) : undefined,
+        }
+      );
+      res.json({ request: updated });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  // =========================================================================
+  // Enhancement 05: Parent Learning Intelligence, Teaching Guidance & Smart Timetables
+  // =========================================================================
+
+  app.get('/api/guardian-links', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const links = parentIntelligenceService.getLinkedStudents(authUser);
+      const guardians =
+        authUser.role === 'admin' ? parentIntelligenceService.listGuardianAccounts() : undefined;
+      res.json({ links, guardians });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/guardian-links', requireAdmin, (req, res) => {
+    try {
+      const admin = (req as AuthedRequest).authUser;
+      const link = parentIntelligenceService.createOrVerifyGuardianLink(admin, req.body || {});
+      res.status(201).json({ link });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/guardian-links/:id', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const link = parentIntelligenceService.updateGuardianLinkPermissions(
+        authUser,
+        String(req.params.id),
+        req.body || {}
+      );
+      res.json({ link });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/parent/students/:studentId/reports', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const result = parentIntelligenceService.listStudentReports(
+        authUser,
+        String(req.params.studentId)
+      );
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/parent/reports/:reportId', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const detail = parentIntelligenceService.getReportDetail(
+        authUser,
+        String(req.params.reportId)
+      );
+      res.json(detail);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/parent/reports/:reportId/export.html', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { filename, html } = parentIntelligenceService.exportReportHtml(
+        authUser,
+        String(req.params.reportId)
+      );
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(html);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/parent/reports/:reportId/export.pdf', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { filename, pdf } = parentIntelligenceService.exportReportPdf(
+        authUser,
+        String(req.params.reportId)
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(pdf);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/parent/reports/:reportId/dispatch', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { channels } = req.body || {};
+      const result = parentIntelligenceService.resendReport(
+        authUser,
+        String(req.params.reportId),
+        Array.isArray(channels) ? channels : undefined
+      );
+      res.json(result);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/teacher/parent-support-insights', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(parentIntelligenceService.getTeacherParentSupportInsights(authUser));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/schedule/questions/preview', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { studentId, filters } = req.body || {};
+      res.json(
+        parentIntelligenceService.previewFilteredQuestions(authUser, {
+          studentId: studentId ? String(studentId) : undefined,
+          filters: filters || { subjectIds: [] },
+        })
+      );
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/timetable-presets', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({ presets: parentIntelligenceService.listTimetablePresets(authUser) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/timetable-presets', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const preset = parentIntelligenceService.createTimetablePreset(authUser, req.body || {});
+      res.status(201).json({ preset });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/timetable-presets/:id', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const preset = parentIntelligenceService.updateTimetablePreset(
+        authUser,
+        String(req.params.id),
+        req.body || {}
+      );
+      res.json({ preset });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/timetable-presets/:id/transition', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const action = String(req.body?.action || 'submit_review') as
+        | 'submit_review'
+        | 'publish'
+        | 'archive';
+      const preset = parentIntelligenceService.transitionTimetablePresetStatus(
+        authUser,
+        String(req.params.id),
+        action
+      );
+      res.json({ preset });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/timetable-presets/:id/preview-apply', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const preview = parentIntelligenceService.previewPresetApplication(authUser, {
+        presetId: String(req.params.id),
+        studentId: String(req.body?.studentId || ''),
+        startDate: String(req.body?.startDate || new Date().toISOString().slice(0, 10)),
+        endDate: req.body?.endDate ? String(req.body.endDate) : undefined,
+        timezone: req.body?.timezone ? String(req.body.timezone) : 'Asia/Colombo',
+        exceptionDates: Array.isArray(req.body?.exceptionDates) ? req.body.exceptionDates : [],
+      });
+      res.json(preview);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/timetable-presets/:id/apply', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const applied = parentIntelligenceService.applyPresetToStudent(authUser, {
+        presetId: String(req.params.id),
+        studentId: String(req.body?.studentId || ''),
+        startDate: String(req.body?.startDate || new Date().toISOString().slice(0, 10)),
+        endDate: req.body?.endDate ? String(req.body.endDate) : undefined,
+        timezone: req.body?.timezone ? String(req.body.timezone) : 'Asia/Colombo',
+        customTitle: req.body?.customTitle ? String(req.body.customTitle) : undefined,
+        exceptionDates: Array.isArray(req.body?.exceptionDates) ? req.body.exceptionDates : [],
+        skipConflicts: Boolean(req.body?.skipConflicts),
+      });
+      res.status(201).json(applied);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/schedule/students/:studentId/dashboard', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(
+        parentIntelligenceService.getStudentScheduleDashboard(
+          authUser,
+          String(req.params.studentId)
+        )
+      );
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/timetables/preview', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(parentIntelligenceService.previewCustomTimetable(authUser, req.body || {}));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/timetables', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const created = parentIntelligenceService.createCustomTimetable(authUser, req.body || {});
+      res.status(201).json(created);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/scheduled-sessions/:id/reschedule', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const session = parentIntelligenceService.rescheduleSession(
+        authUser,
+        String(req.params.id),
+        req.body || {}
+      );
+      res.json({ session });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/scheduled-sessions/:id/status', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const action = String(req.body?.action || 'pause') as 'pause' | 'resume' | 'cancel';
+      const session = parentIntelligenceService.updateSessionStatus(
+        authUser,
+        String(req.params.id),
+        action
+      );
+      res.json({ session });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/scheduled-sessions/:id/start', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(
+        parentIntelligenceService.startScheduledSession(authUser, String(req.params.id))
+      );
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/scheduled-sessions/:id/complete', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const session = parentIntelligenceService.completeScheduledSession(
+        authUser,
+        String(req.params.id),
+        req.body?.linkedAttemptId ? String(req.body.linkedAttemptId) : null
+      );
+      res.json({ session });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.put('/api/reminder-preferences/:studentId', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const preferences = parentIntelligenceService.updateReminderPreferences(
+        authUser,
+        String(req.params.studentId),
+        req.body || {}
+      );
+      res.json({ preferences });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/scheduler/run-sweep', requireAdmin, (_req, res) => {
+    try {
+      res.json(parentIntelligenceService.runSchedulerSweep());
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  // Periodic scheduler for future-scheduled publications & study session reminders (idempotent)
   const scheduleTimer = setInterval(() => {
     try {
       knowledgeService.processScheduledPublications();
+      parentIntelligenceService.runSchedulerSweep();
     } catch {
       // ignore background tick error
     }

@@ -1,19 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Award,
   BookOpen,
+  Calendar,
   Clock,
   Flame,
+  PauseCircle,
   Play,
+  PlayCircle,
   Share2,
   Star,
   TrendingUp,
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
-import type { AuthUser, StudentInterventionInstruction } from '../lib/api';
+import { api, type AuthUser, type StudentInterventionInstruction } from '../lib/api';
+import { computeSessionCountdownState, formatUtcInTimeZone } from '../lib/learningScheduler';
 import { evaluateHeaderStreakBadge } from '../lib/streak';
-import type { AttemptRecord, StudentTrajectory } from '../lib/types';
+import type { AttemptRecord, ScheduledSessionRecord, StudentTrajectory } from '../lib/types';
 import {
   DailyLessonIllustration,
   MascotAvatar,
@@ -34,6 +38,7 @@ interface StudentHomeProps {
   poolCount: number;
   interventions?: StudentInterventionInstruction[];
   onStartTargetedPractice?: (intervention: StudentInterventionInstruction) => void;
+  onStartScheduledSession?: (session: ScheduledSessionRecord) => void;
   onNavigate: (view: 'practice' | 'exams' | 'parents' | 'billing') => void;
   onQuickShare: () => Promise<void>;
   onUpdateDailyGoal: (targetQuestions: number) => Promise<void>;
@@ -46,6 +51,7 @@ export function StudentHome({
   poolCount,
   interventions = [],
   onStartTargetedPractice,
+  onStartScheduledSession,
   onNavigate,
   onQuickShare,
   onUpdateDailyGoal,
@@ -53,6 +59,58 @@ export function StudentHome({
   const [trackerTab, setTrackerTab] = useState<'study' | 'weekly' | 'history'>('study');
   const [sharing, setSharing] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
+  const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionRecord[]>([]);
+  const [canSelfEditSchedule, setCanSelfEditSchedule] = useState(false);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const loadSchedule = async () => {
+    try {
+      const res = await api.getStudentScheduleDashboard(user.id);
+      setScheduledSessions(res.sessions);
+      setCanSelfEditSchedule(res.links.some((l) => l.studentCanEditSchedule));
+    } catch {
+      // non-blocking
+    }
+  };
+
+  useEffect(() => {
+    loadSchedule();
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [user.id]);
+
+  const handleStudentReschedule = async (session: ScheduledSessionRecord) => {
+    setScheduleNotice(null);
+    try {
+      await api.rescheduleScheduledSession(session.id, {
+        newDate: editDate,
+        newTimeOfDay: editTime,
+        timezone: session.timezone,
+      });
+      setEditingSessionId(null);
+      setScheduleNotice('Session time adjusted cleanly.');
+      await loadSchedule();
+    } catch (err) {
+      setScheduleNotice((err as Error).message);
+    }
+  };
+
+  const handleStudentTogglePause = async (session: ScheduledSessionRecord) => {
+    setScheduleNotice(null);
+    try {
+      await api.updateScheduledSessionStatus(
+        session.id,
+        session.status === 'PAUSED' ? 'resume' : 'pause'
+      );
+      await loadSchedule();
+    } catch (err) {
+      setScheduleNotice((err as Error).message);
+    }
+  };
 
   const firstName = user.name.split(' ')[0];
   const headerStreak = evaluateHeaderStreakBadge(user.streakDays);
@@ -178,6 +236,158 @@ export function StudentHome({
           onSaveGoal={onUpdateDailyGoal}
           onStartPractice={() => onNavigate('practice')}
         />
+
+        {/* Upcoming Scheduled Activities & Live Countdowns */}
+        {scheduledSessions.length > 0 && (
+          <section
+            data-testid="student-scheduled-sessions"
+            className="bg-white rounded-3xl border border-[#CBE2FA] p-6 space-y-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#E5F0FA]">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-[#158EE3]" />
+                <div>
+                  <h2 className="text-base font-display font-bold text-[#0F2942]">
+                    My Study Timetable &amp; Upcoming Sessions
+                  </h2>
+                  <p className="text-xs text-[#526A84]">
+                    Calm, bite-sized practice and mock exam slots organized for your week
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-[#158EE3] tabular-nums">
+                {scheduledSessions.filter((s) => s.status === 'SCHEDULED' || s.status === 'IN_PROGRESS').length}{' '}
+                Upcoming
+              </span>
+            </div>
+
+            {scheduleNotice && (
+              <div className="p-3 rounded-xl bg-[#F3F9FF] border border-[#99CAFA] text-xs font-medium text-[#0E4F80]">
+                {scheduleNotice}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {scheduledSessions
+                .filter((s) => s.status !== 'CANCELLED')
+                .slice(0, 6)
+                .map((s) => {
+                  const countdown = computeSessionCountdownState(s, nowMs);
+                  const fmt = formatUtcInTimeZone(s.scheduledStartUtc, s.timezone);
+                  const canStart =
+                    s.status === 'SCHEDULED' ||
+                    s.status === 'IN_PROGRESS' ||
+                    countdown.phase === 'ready_now' ||
+                    countdown.phase === 'in_grace';
+                  const isEditing = editingSessionId === s.id;
+
+                  return (
+                    <div
+                      key={s.id}
+                      data-testid={`student-session-${s.id}`}
+                      className="p-4 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] space-y-2.5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-0.5 min-w-[210px] flex-1">
+                          <div className="text-xs font-bold text-[#158EE3] tabular-nums">
+                            {fmt.readable} ({s.timezone}) · {s.durationMinutes} min
+                          </div>
+                          <div className="text-sm font-bold text-[#0F2942]">{s.title}</div>
+                          <div className="text-[11px] font-semibold text-[#526A84] tabular-nums">
+                            Status: {s.status} · Countdown:{' '}
+                            <span className="text-[#F96A1B] font-bold">
+                              {countdown.countdownLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {canSelfEditSchedule &&
+                            (s.status === 'SCHEDULED' || s.status === 'PAUSED') && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSessionId(isEditing ? null : s.id);
+                                    setEditDate(fmt.dateStr);
+                                    setEditTime(fmt.timeStr);
+                                  }}
+                                  className="px-2.5 py-1.5 text-[11px] font-semibold text-[#0F2942] bg-white border border-[#CBE2FA] rounded-xl"
+                                >
+                                  Adjust Time
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStudentTogglePause(s)}
+                                  className="px-2.5 py-1.5 text-[11px] font-semibold text-[#9A5B00] bg-[#FFF8EB] border border-[#F3D19C] rounded-xl flex items-center gap-1"
+                                >
+                                  {s.status === 'PAUSED' ? (
+                                    <>
+                                      <PlayCircle className="w-3 h-3" /> Resume
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PauseCircle className="w-3 h-3" /> Pause
+                                    </>
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          {canStart && (
+                            <button
+                              type="button"
+                              data-testid={`launch-scheduled-${s.id}`}
+                              onClick={() =>
+                                onStartScheduledSession
+                                  ? onStartScheduledSession(s)
+                                  : onNavigate(
+                                      s.activityType === 'mock_exam' ? 'exams' : 'practice'
+                                    )
+                              }
+                              className="px-4 py-2 text-xs font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                              <span>Start Activity</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isEditing && (
+                        <div className="p-3 rounded-xl bg-white border border-[#99CAFA] flex flex-wrap items-end gap-2 text-xs">
+                          <div>
+                            <label className="block text-[10px] text-[#526A84]">Date</label>
+                            <input
+                              type="date"
+                              value={editDate}
+                              onChange={(e) => setEditDate(e.target.value)}
+                              className="px-2 py-1 border border-[#CBE2FA] rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-[#526A84]">Time</label>
+                            <input
+                              type="time"
+                              value={editTime}
+                              onChange={(e) => setEditTime(e.target.value)}
+                              className="px-2 py-1 border border-[#CBE2FA] rounded-lg"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleStudentReschedule(s)}
+                            className="px-3 py-1.5 text-xs font-bold text-white bg-[#158EE3] rounded-lg"
+                          >
+                            Save Time
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
+        )}
 
         {/* Teacher Learning Instructions & Assigned Practice */}
         {interventions.length > 0 && (

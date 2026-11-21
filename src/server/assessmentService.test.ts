@@ -387,4 +387,305 @@ describe('AssessmentService SQLite RBAC, Snapshot Immutability, Multi-Type Attem
       .get(started.attempt.id) as { status: string };
     assert.equal(closedRow.status, 'timed_out');
   });
+
+  it('supports rejection/revision, retirement with replacement, and subject reassignment preserving historical snapshots', () => {
+    const wrap = createTempServices();
+    cleanups.push(wrap.cleanup);
+    const { academicService, assessmentService } = wrap;
+
+    const admin = academicService.getUserByIdentifier('admin@man5he.lk')!;
+    const mathTeacher = academicService.getUserByIdentifier('teacher.math@man5he.lk')!;
+    const langTeacher = academicService.getUserByIdentifier('teacher.lang@man5he.lk')!;
+    const student = academicService.getUserByIdentifier('sayuri@man5he.lk')!;
+
+    // Teacher creates draft -> submits -> Admin rejects -> Teacher edits -> Admin approves -> Activates
+    const q1 = assessmentService.createQuestionExtended(mathTeacher, {
+      subjectId: 'subj-math',
+      topicId: 'top-math-money',
+      questionType: 'mcq',
+      questionSi: 'Original Draft: 12 + 8 = ?',
+      options: ['18', '20', '22', '24'],
+      correctIndex: 1,
+      approvalStatus: 'DRAFT',
+    });
+    assessmentService.transitionQuestionStatus(mathTeacher, q1.id, { toStatus: 'PENDING_REVIEW' });
+    const rejected = assessmentService.transitionQuestionStatus(admin, q1.id, {
+      toStatus: 'REJECTED',
+      notes: 'Clarify currency unit in prompt',
+    });
+    assert.equal(rejected.approvalStatus, 'REJECTED');
+
+    const revised = assessmentService.updateQuestionExtended(mathTeacher, q1.id, {
+      questionSi: 'රු. 12 + රු. 8 = කීයද?',
+      changeNote: 'Added Rs. currency unit',
+    });
+    assert.equal(revised.version, 2);
+
+    assessmentService.transitionQuestionStatus(mathTeacher, q1.id, { toStatus: 'PENDING_REVIEW' });
+    assessmentService.transitionQuestionStatus(admin, q1.id, { toStatus: 'APPROVED' });
+    const activeQ1 = assessmentService.transitionQuestionStatus(admin, q1.id, { toStatus: 'ACTIVE' });
+    assert.equal(activeQ1.approvalStatus, 'ACTIVE');
+
+    // Create replacement question and retire q1 pointing to replacement
+    const qReplacement = assessmentService.createQuestionExtended(admin, {
+      subjectId: 'subj-math',
+      topicId: 'top-math-money',
+      questionType: 'mcq',
+      questionSi: 'රු. 15 + රු. 10 = කීයද?',
+      options: ['20', '25', '30', '35'],
+      correctIndex: 1,
+      approvalStatus: 'ACTIVE',
+    });
+
+    // Include q1 in an assessment first, let student complete it, then retire q1 and move subject
+    const asm = assessmentService.createAssessment(admin, {
+      kind: 'practice_session',
+      title: 'Lifecycle & Subject Move Practice',
+      subjectIds: ['subj-math'],
+      explanationTiming: 'immediate',
+      status: 'PUBLISHED',
+      sections: [{ title: 'S1', items: [{ questionId: q1.id, marks: 2 }] }],
+    });
+    const session = assessmentService.startOrResumeAssessmentAttempt(student, asm.id);
+    const snapId = session.questions[0].snapshotId!;
+    const checkImm = assessmentService.checkPracticeQuestionAnswer(student, asm.id, {
+      attemptId: session.attempt.id,
+      snapshotId: snapId,
+      submittedOptionIndex: 1,
+    });
+    assert.equal(checkImm.isCorrect, true);
+    assert.ok(checkImm.explanation);
+
+    assessmentService.submitAssessmentAttempt(student, asm.id, {
+      attemptId: session.attempt.id,
+      answers: [{ snapshotId: snapId, questionId: q1.id, submittedOptionIndex: 1 }],
+    });
+
+    const retired = assessmentService.transitionQuestionStatus(admin, q1.id, {
+      toStatus: 'RETIRED',
+      replacedByQuestionId: qReplacement.id,
+      notes: 'Replaced by updated currency item',
+    });
+    assert.equal(retired.approvalStatus, 'RETIRED');
+    assert.equal(retired.replacedByQuestionId, qReplacement.id);
+
+    // Move qReplacement from subj-math to subj-env -> langTeacher gains access, mathTeacher loses access
+    academicService.reassignQuestionSubject(admin, qReplacement.id, {
+      subjectId: 'subj-env',
+      changeNote: 'Cross-subject move test',
+    });
+    assert.throws(
+      () =>
+        academicService.getQuestionDetailIntelligence(
+          academicService.buildAuthContext(mathTeacher),
+          qReplacement.id
+        ),
+      (err: unknown) => err instanceof HttpError && err.status === 403
+    );
+    const langView = academicService.getQuestionDetailIntelligence(
+      academicService.buildAuthContext(langTeacher),
+      qReplacement.id
+    );
+    assert.equal(langView.question.id, qReplacement.id);
+  });
+
+  it('preserves shuffled option grading accuracy, paper versioning, and manual-fail repeated-error intervention triggers', () => {
+    const wrap = createTempServices();
+    cleanups.push(wrap.cleanup);
+    const { academicService, assessmentService } = wrap;
+
+    const admin = academicService.getUserByIdentifier('admin@man5he.lk')!;
+    const mathTeacher = academicService.getUserByIdentifier('teacher.math@man5he.lk')!;
+    const student = academicService.getUserByIdentifier('kasun@man5he.lk')!;
+
+    // Teacher with multiple subjects builds cross-subject (subj-math + subj-logic) shuffled exam
+    const qMath = assessmentService.createQuestionExtended(mathTeacher, {
+      subjectId: 'subj-math',
+      topicId: 'top-math-money',
+      questionType: 'mcq',
+      questionSi: 'Shuffled Math: 40 - 15 = ?',
+      options: ['15', '20', '25', '30'],
+      correctIndex: 2,
+      defaultMarks: 2,
+      approvalStatus: 'DRAFT',
+    });
+    assessmentService.transitionQuestionStatus(admin, qMath.id, { toStatus: 'ACTIVE' });
+
+    const qLogic = assessmentService.createQuestionExtended(mathTeacher, {
+      subjectId: 'subj-logic',
+      topicId: 'top-logic-seq',
+      questionType: 'mcq',
+      questionSi: 'Shuffled Logic: 2, 4, 8, ?',
+      options: ['10', '12', '14', '16'],
+      correctIndex: 3,
+      defaultMarks: 2,
+      approvalStatus: 'DRAFT',
+    });
+    assessmentService.transitionQuestionStatus(admin, qLogic.id, { toStatus: 'ACTIVE' });
+
+    const qWritten = assessmentService.createQuestionExtended(admin, {
+      subjectId: 'subj-math',
+      topicId: 'top-math-money',
+      questionType: 'short_answer',
+      questionSi: 'Explain coin change calculation',
+      acceptedAnswers: ['Rubric'],
+      markingRule: { requiresManualReview: true },
+      defaultMarks: 2,
+      approvalStatus: 'ACTIVE',
+    });
+
+    // Insufficient bank check MUST reject without silent substitution
+    assert.throws(
+      () =>
+        assessmentService.previewQuestionSelection(mathTeacher, {
+          subjectIds: ['subj-math'],
+          questionTypes: ['short_answer'],
+          count: 25,
+          mode: 'deterministic',
+        }),
+      /without silent substitution/
+    );
+
+    const mock = assessmentService.createAssessment(mathTeacher, {
+      kind: 'mock_exam',
+      title: 'Cross-Subject Shuffled Mock',
+      subjectIds: ['subj-math', 'subj-logic'],
+      shuffleQuestions: true,
+      shuffleOptions: true,
+      explanationTiming: 'after_submit',
+      maxAttempts: 5,
+      status: 'PUBLISHED',
+      sections: [
+        {
+          title: 'Mixed Subjects',
+          items: [
+            { questionId: qMath.id, marks: 2 },
+            { questionId: qLogic.id, marks: 2 },
+            { questionId: qWritten.id, marks: 2 },
+          ],
+        },
+      ],
+    });
+
+    // Student completes Attempt 1 picking the exact correct option text in shuffled positions,
+    // and writes an incorrect response on qWritten
+    const sess1 = assessmentService.startOrResumeAssessmentAttempt(student, mock.id);
+    const ans1 = sess1.questions.map((q) => {
+      if (q.id === qMath.id) {
+        return { snapshotId: q.snapshotId!, questionId: q.id, submittedOptionIndex: q.options.indexOf('25') };
+      }
+      if (q.id === qLogic.id) {
+        return { snapshotId: q.snapshotId!, questionId: q.id, submittedOptionIndex: q.options.indexOf('16') };
+      }
+      return { snapshotId: q.snapshotId!, questionId: q.id, submittedAnswerText: 'Wrong step' };
+    });
+    const sub1 = assessmentService.submitAssessmentAttempt(student, mock.id, {
+      attemptId: sess1.attempt.id,
+      answers: ans1,
+    });
+    assert.equal(sub1.attempt.status, 'pending_manual_marking');
+    assert.equal(sub1.attempt.scorePercent, null);
+    assert.equal(sub1.attempt.autoScore, 4);
+
+    // Manual marking 0/2 on written response x 3 attempts triggers Enhancement 01 repeated-error intervention!
+    const wSnap1 = sess1.questions.find((q) => q.id === qWritten.id)!.snapshotId!;
+    const g1 = assessmentService.gradeManualAnswers(mathTeacher, sess1.attempt.id, [
+      { snapshotId: wSnap1, awardedMarks: 0, comment: 'Needs method' },
+    ]);
+    assert.equal(g1.attempt.status, 'graded');
+    assert.equal(g1.attempt.scorePercent, 67); // 4/6
+
+    // Two more quick written failures trigger threshold = 3 OPEN intervention case
+    for (let k = 0; k < 2; k++) {
+      const s = assessmentService.startOrResumeAssessmentAttempt(student, mock.id);
+      const wSnap = s.questions.find((q) => q.id === qWritten.id)!.snapshotId!;
+      assessmentService.submitAssessmentAttempt(student, mock.id, {
+        attemptId: s.attempt.id,
+        answers: [{ snapshotId: wSnap, questionId: qWritten.id, submittedAnswerText: 'Still wrong' }],
+      });
+      assessmentService.gradeManualAnswers(mathTeacher, s.attempt.id, [
+        { snapshotId: wSnap, awardedMarks: 0, comment: 'Repeat mistake' },
+      ]);
+    }
+    const qDetail = academicService.getQuestionDetailIntelligence(
+      academicService.buildAuthContext(mathTeacher),
+      qWritten.id
+    );
+    assert.equal(qDetail.metrics.incorrectAttemptCount, 3);
+    assert.equal(qDetail.metrics.repeatedErrorStudentCount, 1);
+
+    // Create New Version (v2) and modify draft without touching v1 historical attempt review
+    const v2Draft = assessmentService.createAssessmentNewVersion(mathTeacher, mock.id);
+    assert.equal(v2Draft.currentVersion, 2);
+    assert.equal(v2Draft.status, 'DRAFT');
+
+    assessmentService.updateDraftAssessment(mathTeacher, mock.id, {
+      title: 'Cross-Subject Shuffled Mock v2',
+      sections: [{ title: 'V2 Section', items: [{ questionId: qMath.id, marks: 5 }] }],
+    });
+    assessmentService.transitionAssessmentStatus(mathTeacher, mock.id, { toStatus: 'PUBLISHED' });
+
+    const v1ReviewAfterBump = assessmentService.getAttemptReview(student, sess1.attempt.id);
+    assert.equal(v1ReviewAfterBump.items.length, 3);
+    assert.equal(v1ReviewAfterBump.attempt.assessmentVersion, 1);
+    assert.equal(v1ReviewAfterBump.attempt.totalAwardedMarks, 4);
+  });
+
+  it('maintains fast query and selection performance with 2,500+ curated questions', () => {
+    const wrap = createTempServices();
+    cleanups.push(wrap.cleanup);
+    const { db, academicService, assessmentService } = wrap;
+
+    const admin = academicService.getUserByIdentifier('admin@man5he.lk')!;
+    const now = new Date().toISOString();
+    const ins = db.db.prepare(
+      `INSERT INTO questions (
+        id, source, subject_id, topic_id, subtopic_id, version, grade, question_type,
+        cognitive_skill, learning_objectives, hint, marking_rule_json, accepted_answers_json,
+        default_marks, approval_status, author_id, author_name, question_si, question_en,
+        options_json, correct_index, memory_trick_title, memory_trick_body, explanation,
+        misconceptions_json, attributes_json, quality_flag, active, created_by, created_at, updated_at
+      ) VALUES (?, 'curated', 'subj-math', 'top-math-money', 'sub-math-change', 1, 'Grade 5', 'mcq',
+        'Application', 'Bulk perf test', '', '{}', '[]', 1, 'ACTIVE', 'usr-admin-1', 'Admin',
+        ?, ?, '["1","2","3","4"]', 1, 'Tip', 'Trick', 'Exp', '[]', ?, 'OK', 1, 'admin', ?, ?)`
+    );
+
+    const attrs = JSON.stringify({
+      intelligenceMeasure: 45,
+      correctProbability: 0.75,
+      wrongProbability: 0.25,
+      examPriority: 7,
+      quizStrength: 75,
+      difficultyTier: 'Moderate',
+      cognitiveDomain: 'Mathematics & Word Problems',
+      estimatedSeconds: 30,
+    });
+
+    db.transaction(() => {
+      for (let i = 1; i <= 2500; i++) {
+        ins.run(`PERF-Q-${i}`, `Perf Prompt ${i}`, `Perf Prompt ${i}`, attrs, now, now);
+      }
+    });
+
+    const t0 = Date.now();
+    const listRes = academicService.listQuestionsWithStats(academicService.buildAuthContext(admin), {
+      source: 'curated',
+      subjectId: 'subj-math',
+      approvalStatus: 'ACTIVE',
+      page: 2,
+      pageSize: 20,
+    });
+    const selRes = assessmentService.previewQuestionSelection(admin, {
+      subjectIds: ['subj-math'],
+      count: 40,
+      mode: 'randomized',
+      seed: 99,
+    });
+    const elapsedMs = Date.now() - t0;
+
+    assert.ok(listRes.curatedCount >= 2500);
+    assert.equal(listRes.quizzes.length, 20);
+    assert.equal(selRes.selected.length, 40);
+    assert.ok(elapsedMs < 2000, `Expected <2000ms for 2500-item filter & select, got ${elapsedMs}ms`);
+  });
 });

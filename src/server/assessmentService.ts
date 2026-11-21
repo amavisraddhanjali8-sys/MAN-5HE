@@ -61,10 +61,17 @@ function parseJsonSafe<T>(raw: unknown, fallback: T): T {
 export class AssessmentService {
   private readonly dbWrapper: Man5heDatabase;
   private readonly academicService: AcademicService;
+  private onAttemptCompletedHook?: (attemptId: string, stage: 'submitted' | 'graded') => void;
 
   constructor(dbWrapper: Man5heDatabase, academicService: AcademicService) {
     this.dbWrapper = dbWrapper;
     this.academicService = academicService;
+  }
+
+  public setOnAttemptCompletedHook(
+    hook: (attemptId: string, stage: 'submitted' | 'graded') => void
+  ): void {
+    this.onAttemptCompletedHook = hook;
   }
 
   private get db() {
@@ -571,6 +578,28 @@ export class AssessmentService {
       throw new HttpError(403, check.reason || 'Transition not permitted.');
     }
 
+    const replacementId = payload.replacedByQuestionId
+      ? String(payload.replacedByQuestionId).trim()
+      : null;
+    if (payload.toStatus === 'RETIRED' && replacementId) {
+      if (replacementId === questionId) {
+        throw new HttpError(400, 'Replacement question cannot be the same question.');
+      }
+      const replacement = this.academicService.resolveQuizById(replacementId);
+      if (!replacement) {
+        throw new HttpError(404, `Replacement question ${replacementId} not found.`);
+      }
+      if (!canAccessQuestion(ctx, replacement)) {
+        throw new HttpError(
+          403,
+          'Replacement question must belong to a subject within your authorization scope.'
+        );
+      }
+      if (replacement.approvalStatus === 'RETIRED') {
+        throw new HttpError(400, `Replacement question ${replacementId} is already RETIRED.`);
+      }
+    }
+
     const now = new Date().toISOString();
     const isAdminReview =
       actor.role === 'admin' &&
@@ -599,7 +628,7 @@ export class AssessmentService {
           isAdminReview ? now : null,
           payload.toStatus === 'REJECTED' ? String(payload.notes || 'Needs revision') : null,
           payload.toStatus === 'RETIRED' ? now : null,
-          payload.replacedByQuestionId || null,
+          replacementId,
           now,
           questionId
         );
@@ -610,7 +639,9 @@ export class AssessmentService {
         actionType: `STATUS_${payload.toStatus}`,
         fromStatus,
         toStatus: payload.toStatus,
-        notes: String(payload.notes || ''),
+        notes: [String(payload.notes || ''), replacementId ? `Replaced by ${replacementId}` : '']
+          .filter(Boolean)
+          .join(' · '),
       });
 
       this.academicService.writeAuditLog({
@@ -620,7 +651,12 @@ export class AssessmentService {
         action: 'QUESTION_STATUS_CHANGED',
         targetType: 'question',
         targetId: questionId,
-        details: { fromStatus, toStatus: payload.toStatus, notes: payload.notes || '' },
+        details: {
+          fromStatus,
+          toStatus: payload.toStatus,
+          replacedByQuestionId: replacementId,
+          notes: payload.notes || '',
+        },
       });
     });
 
@@ -729,6 +765,7 @@ export class AssessmentService {
           cognitiveSkill: item.cognitiveSkill,
           learningObjectives: item.learningObjectives,
           hint: item.hint,
+          markingRule: item.markingRule,
           acceptedAnswers: item.acceptedAnswers,
           defaultMarks: item.defaultMarks,
           approvalStatus: statusToApply,
@@ -1650,6 +1687,90 @@ export class AssessmentService {
     });
   }
 
+  public createAssessmentNewVersion(actor: UserAccount, assessmentId: string): AssessmentRecord {
+    const { assessment, snapshots } = this.getAssessmentDetailScoped(actor, assessmentId);
+    if (actor.role === 'teacher' && assessment.authorId !== actor.id) {
+      throw new HttpError(403, 'Teachers can only create new versions for assessments they authored.');
+    }
+    if (assessment.status === 'DRAFT' || assessment.status === 'VALIDATED') {
+      throw new HttpError(
+        400,
+        'This assessment version is already in an editable DRAFT/VALIDATED state.'
+      );
+    }
+
+    const ctx = this.academicService.buildAuthContext(actor);
+    this.assertTeacherCanManageSubjects(ctx, assessment.subjectIds);
+
+    const prevVersion = assessment.currentVersion;
+    const nextVersion = prevVersion + 1;
+    const now = new Date().toISOString();
+
+    this.dbWrapper.transaction(() => {
+      const sectionIdMap = new Map<string, string>();
+      const insSec = this.db.prepare(
+        `INSERT INTO assessment_sections (id, assessment_id, version_number, sort_order, title, instructions, subject_id, total_marks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const sec of assessment.sections) {
+        const newSecId = `SEC-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+        sectionIdMap.set(sec.id, newSecId);
+        insSec.run(
+          newSecId,
+          assessmentId,
+          nextVersion,
+          sec.sortOrder,
+          sec.title,
+          sec.instructions,
+          sec.subjectId,
+          sec.totalMarks
+        );
+      }
+
+      const insSnap = this.db.prepare(
+        `INSERT INTO assessment_question_snapshots (id, assessment_id, version_number, section_id, sort_order, question_id, question_version, marks, snapshot_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const snap of snapshots) {
+        const mappedSecId = sectionIdMap.get(snap.sectionId) || snap.sectionId;
+        insSnap.run(
+          `SNAP-${crypto.randomBytes(5).toString('hex').toUpperCase()}`,
+          assessmentId,
+          nextVersion,
+          mappedSecId,
+          snap.sortOrder,
+          snap.questionId,
+          snap.questionVersion,
+          snap.marks,
+          JSON.stringify(snap.snapshot)
+        );
+      }
+
+      this.db
+        .prepare(
+          `UPDATE assessments SET
+            current_version = ?,
+            status = 'DRAFT',
+            results_released_at = NULL,
+            updated_at = ?
+           WHERE id = ?`
+        )
+        .run(nextVersion, now, assessmentId);
+
+      this.academicService.writeAuditLog({
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        action: 'ASSESSMENT_NEW_VERSION_CREATED',
+        targetType: assessment.kind,
+        targetId: assessmentId,
+        details: { fromVersion: prevVersion, toVersion: nextVersion },
+      });
+    });
+
+    return this.getAssessmentDetailScoped(actor, assessmentId).assessment;
+  }
+
   public exportAssessmentPrintable(
     actor: UserAccount,
     assessmentId: string,
@@ -1989,6 +2110,108 @@ export class AssessmentService {
     return { ok: true, savedAt: now };
   }
 
+  public checkPracticeQuestionAnswer(
+    student: UserAccount,
+    assessmentId: string,
+    payload: {
+      attemptId: string;
+      snapshotId: string;
+      submittedOptionIndex?: number | null;
+      submittedAnswerText?: string | null;
+    }
+  ) {
+    const attemptRow = this.db
+      .prepare('SELECT * FROM assessment_attempts WHERE id = ? AND assessment_id = ?')
+      .get(payload.attemptId, assessmentId) as Record<string, unknown> | undefined;
+    if (!attemptRow) {
+      throw new HttpError(404, 'Assessment attempt not found.');
+    }
+    const attempt = this.hydrateAttemptRow(attemptRow);
+    if (attempt.studentId !== student.id) {
+      throw new HttpError(403, 'Not authorized to inspect another student’s attempt.');
+    }
+    if (attempt.status !== 'in_progress') {
+      throw new HttpError(400, 'This attempt has already been submitted.');
+    }
+    if (attempt.expiresAt && Date.now() > Date.parse(attempt.expiresAt) + 5000) {
+      throw new HttpError(400, 'Assessment timer has expired.');
+    }
+
+    const asmRow = this.db.prepare('SELECT * FROM assessments WHERE id = ?').get(assessmentId) as
+      | Record<string, unknown>
+      | undefined;
+    if (!asmRow) throw new HttpError(404, 'Assessment not found.');
+    const assessment = this.hydrateAssessmentRow(asmRow);
+    if (assessment.kind !== 'practice_session' || assessment.explanationTiming !== 'immediate') {
+      throw new HttpError(
+        403,
+        'Immediate question feedback is enabled only for practice sessions configured with immediate explanations.'
+      );
+    }
+
+    const snapshots = this.getAssessmentSnapshots(assessmentId, attempt.assessmentVersion);
+    const snap = snapshots.find((s) => s.id === payload.snapshotId);
+    if (!snap) {
+      throw new HttpError(404, 'Question snapshot not found in this attempt.');
+    }
+
+    const dispIdx =
+      typeof payload.submittedOptionIndex === 'number' ? payload.submittedOptionIndex : null;
+    const mapping = attempt.shuffledOptionsMap[snap.id];
+    const gradeRes = gradeSubmittedAnswer({
+      question: snap.snapshot,
+      marks: snap.marks,
+      submittedDisplayOptionIndex: dispIdx,
+      submittedAnswerText: payload.submittedAnswerText ?? null,
+      optionMapping: mapping,
+    });
+
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO assessment_answers (
+          id, attempt_id, snapshot_id, question_id, question_version, submitted_answer_text,
+          submitted_option_index, marking_status, awarded_marks, max_marks, response_duration_ms,
+          hint_used, answered_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'auto_graded', 0, ?, 0, 0, ?)
+        ON CONFLICT(attempt_id, snapshot_id) DO UPDATE SET
+          submitted_answer_text = excluded.submitted_answer_text,
+          submitted_option_index = excluded.submitted_option_index,
+          answered_at = excluded.answered_at`
+      )
+      .run(
+        `AANS-${crypto.randomBytes(5).toString('hex').toUpperCase()}`,
+        attempt.id,
+        snap.id,
+        snap.questionId,
+        snap.questionVersion,
+        gradeRes.submittedAnswerText,
+        dispIdx,
+        snap.marks,
+        now
+      );
+
+    let correctDisplayOptionIndex: number | null = snap.snapshot.correctIndex;
+    if (mapping && mapping.length > 0) {
+      const foundDisp = mapping.indexOf(snap.snapshot.correctIndex);
+      if (foundDisp >= 0) correctDisplayOptionIndex = foundDisp;
+    }
+
+    return {
+      snapshotId: snap.id,
+      questionId: snap.questionId,
+      isCorrect: gradeRes.isCorrect,
+      markingStatus: gradeRes.markingStatus,
+      awardedMarks: gradeRes.awardedMarks,
+      maxMarks: snap.marks,
+      correctDisplayOptionIndex,
+      acceptedAnswers: snap.snapshot.acceptedAnswers || [],
+      explanation: snap.snapshot.explanation,
+      memoryTrickTitle: snap.snapshot.memoryTrickTitle,
+      memoryTrickBody: snap.snapshot.memoryTrickBody,
+    };
+  }
+
   public submitAssessmentAttempt(
     student: UserAccount,
     assessmentId: string,
@@ -2165,12 +2388,11 @@ export class AssessmentService {
       ? 'timed_out'
       : 'graded';
 
-    const scorePercent =
-      maxMarks > 0 && !hasPendingManual
-        ? Math.round((autoScore / maxMarks) * 100)
-        : maxMarks > 0
-        ? Math.round((autoScore / maxMarks) * 100)
-        : 0;
+    const scorePercent: number | null = hasPendingManual
+      ? null
+      : maxMarks > 0
+      ? Math.round((autoScore / maxMarks) * 100)
+      : 0;
 
     this.dbWrapper.transaction(() => {
       const upsertAns = this.db.prepare(
@@ -2269,7 +2491,8 @@ export class AssessmentService {
     }
 
     // Record summary round attempt & guardian notification
-    const starsEarned = correctCount * 4 + (scorePercent >= assessment.passMarkPercent ? 10 : 2);
+    const starsEarned =
+      correctCount * 4 + (scorePercent !== null && scorePercent >= assessment.passMarkPercent ? 10 : 2);
     const { attempt: roundAttempt, user: refreshedUser, trajectory } =
       this.academicService.recordRoundAttemptAndUpdateUser({
         user: student,
@@ -2285,11 +2508,12 @@ export class AssessmentService {
         domainBreakdown,
       });
 
+    const reportScoreLabel = scorePercent !== null ? `${scorePercent}%` : 'Pending Teacher Mark';
     this.academicService.dispatchActivityEmailAndWhatsApp({
       user: refreshedUser,
       attempt: roundAttempt,
       trajectory,
-      emailSubject: `${assessment.kind === 'mock_exam' ? 'Exam' : 'Practice'} Report: ${assessment.title} (${scorePercent}%) · මං 5හේ`,
+      emailSubject: `${assessment.kind === 'mock_exam' ? 'Exam' : 'Practice'} Report: ${assessment.title} (${reportScoreLabel}) · මං 5හේ`,
       whatsappCategory: assessment.kind === 'mock_exam' ? 'exam_report' : 'milestone',
     });
 
@@ -2299,6 +2523,12 @@ export class AssessmentService {
         unknown
       >
     );
+
+    try {
+      this.onAttemptCompletedHook?.(attempt.id, 'submitted');
+    } catch {
+      // Do not fail assessment submission if parent report hook encounters an error
+    }
 
     return {
       deduplicated: false,
@@ -2444,6 +2674,14 @@ export class AssessmentService {
     const attempt = this.hydrateAttemptRow(attemptRow);
     const { assessment } = this.getAssessmentDetailScoped(actor, attempt.assessmentId);
 
+    const newlyGradedForIntelligence: {
+      snapshotId: string;
+      questionId: string;
+      isCorrect: boolean;
+      responseDurationMs: number;
+      hintUsed: boolean;
+    }[] = [];
+
     this.dbWrapper.transaction(() => {
       for (const g of grades) {
         const ansRow = g.answerId
@@ -2467,6 +2705,16 @@ export class AssessmentService {
              WHERE id = ?`
           )
           .run(awarded, isCorrect, actor.id, String(g.comment || '').trim(), String(ansRow.id));
+
+        if (String(ansRow.marking_status) === 'pending_manual') {
+          newlyGradedForIntelligence.push({
+            snapshotId: String(ansRow.snapshot_id),
+            questionId: String(ansRow.question_id),
+            isCorrect: isCorrect === 1,
+            responseDurationMs: Math.max(500, Number(ansRow.response_duration_ms ?? 15_000)),
+            hintUsed: Number(ansRow.hint_used ?? 0) === 1,
+          });
+        }
       }
 
       const allAns = this.db
@@ -2509,6 +2757,34 @@ export class AssessmentService {
         details: { assessmentId: assessment.id, totalAwarded, scorePercent: pct, status: nextStatus },
       });
     });
+
+    if (newlyGradedForIntelligence.length > 0) {
+      const student = this.academicService.getUserById(attempt.studentId);
+      if (student) {
+        for (const item of newlyGradedForIntelligence) {
+          this.academicService.recordQuestionAttempt({
+            student,
+            questionId: item.questionId,
+            submittedAnswerIndex: null,
+            submissionStatus: 'valid_answered',
+            responseDurationMs: item.responseDurationMs,
+            hintUsed: item.hintUsed,
+            contextMode: assessment.kind === 'practice_session' ? 'practice' : 'timed_exam',
+            sessionId: attempt.id,
+            deliveryContext: { paperId: assessment.id },
+            idempotencyKey: `asm-${attempt.id}-${item.snapshotId}`,
+            awardPracticeXp: false,
+            overrideIsCorrect: item.isCorrect,
+          });
+        }
+      }
+    }
+
+    try {
+      this.onAttemptCompletedHook?.(attemptId, 'graded');
+    } catch {
+      // Do not block grading response if report hook fails
+    }
 
     return this.getAttemptReview(actor, attemptId);
   }

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {
   calculateQuestionPerformance,
   calculateStudentBaselineVsFollowUp,
-} from './questionIntelligence';
-import type { AttemptSubmissionStatus, QuestionAttempt } from './types';
+} from './questionIntelligence.ts';
+import type { AttemptSubmissionStatus, QuestionAttempt } from './types.ts';
 
 function makeQAttempt(overrides: Partial<QuestionAttempt> & { id: string }): QuestionAttempt {
   return {

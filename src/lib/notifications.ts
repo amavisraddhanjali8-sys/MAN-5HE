@@ -1,4 +1,9 @@
-import type { AttemptRecord, InvoiceRecord, StudentTrajectory } from './types.ts';
+import type {
+  AttemptRecord,
+  InvoiceRecord,
+  ParentAssessmentReport,
+  StudentTrajectory,
+} from './types.ts';
 
 function renderMan5heEmailShell(params: {
   title: string;
@@ -257,4 +262,406 @@ export function buildKnowledgeWhatsAppMessage(params: {
     .filter(Boolean)
     .join('\n');
 }
+
+function escapeHtml(text: string): string {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function buildPasswordRecoveryEmailHtml(params: {
+  recipientName: string;
+  purposeTitle: string;
+  otpCode: string;
+  expiresInMinutes: number;
+  userIdCode: string;
+  supportEmail?: string;
+}): string {
+  const support = escapeHtml(params.supportEmail || 'support@man5he.lk');
+  return renderMan5heEmailShell({
+    title: params.purposeTitle,
+    subtitle: `Security verification requested for ${escapeHtml(params.recipientName)} (${escapeHtml(params.userIdCode)})`,
+    accentColor: '#158EE3',
+    bodyHtml: `
+      <p style="margin-top:0;">Use the single-use 6-digit security verification code below to complete your <strong>${escapeHtml(params.purposeTitle)}</strong> request on මං 5හේ:</p>
+      <div style="margin:20px 0;padding:20px;border-radius:14px;background:#F3F9FF;border:2px dashed #158EE3;text-align:center;">
+        <div style="font-size:12px;color:#476481;margin-bottom:8px;">One-Time Security Code · Expires in ${params.expiresInMinutes} minutes</div>
+        <div style="font-size:34px;font-weight:800;letter-spacing:8px;font-family:monospace;color:#0F2942;">${escapeHtml(params.otpCode)}</div>
+      </div>
+      <div style="padding:14px 16px;border-radius:12px;background:#FFF5EE;border:1px solid #FAD0B9;color:#7C2D12;font-size:13px;margin-bottom:16px;">
+        <strong>Security Warning:</strong> Never share this verification code with anyone. මං 5හේ staff will never ask for your password, one-time codes, backup codes, or Google Authenticator key. If you did not request this code, ignore this message and review your Account &amp; Security activity.
+      </div>
+      <p style="margin-bottom:0;font-size:12px;color:#526A84;">
+        Need help? Contact the මං 5හේ Safety &amp; Support Desk at <a href="mailto:${support}" style="color:#158EE3;font-weight:600;text-decoration:none;">${support}</a>.
+      </p>
+    `,
+  });
+}
+
+export function buildSecurityAlertEmailHtml(params: {
+  recipientName: string;
+  headline: string;
+  summary: string;
+  actionTimeIso: string;
+  supportEmail?: string;
+}): string {
+  const support = escapeHtml(params.supportEmail || 'support@man5he.lk');
+  return renderMan5heEmailShell({
+    title: `Security Notice · ${escapeHtml(params.headline)}`,
+    subtitle: `Account protection alert for ${escapeHtml(params.recipientName)}`,
+    accentColor: '#F96A1B',
+    bodyHtml: `
+      <p style="margin-top:0;">${escapeHtml(params.summary)}</p>
+      <table width="100%" cellspacing="0" cellpadding="10" style="margin:16px 0;background:#F9FCFF;border:1px solid #DCEBFA;border-radius:10px;">
+        <tr>
+          <td><strong>Security Event</strong></td>
+          <td align="right">${escapeHtml(params.headline)}</td>
+        </tr>
+        <tr>
+          <td><strong>Recorded At</strong></td>
+          <td align="right" style="font-family:monospace;">${escapeHtml(new Date(params.actionTimeIso).toUTCString())}</td>
+        </tr>
+      </table>
+      <p style="margin-bottom:0;font-size:13px;color:#526A84;">
+        If you did not authorize this change, revoke active sessions immediately in <strong>Account &amp; Security</strong> or contact <a href="mailto:${support}" style="color:#158EE3;">${support}</a>.
+      </p>
+    `,
+  });
+}
+
+export function buildWhatsAppRecoveryTemplatePayload(params: {
+  templateName?: string;
+  otpCode: string;
+  expiresInMinutes: number;
+  maskedDestination: string;
+}) {
+  const templateName = params.templateName || 'man5he_auth_otp_v1';
+  return {
+    templateName,
+    languageCode: 'en',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: params.otpCode },
+          { type: 'text', text: String(params.expiresInMinutes) },
+        ],
+      },
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: params.otpCode }],
+      },
+    ],
+    redactedAuditSummary: `WhatsApp Business authentication template '${templateName}' sent to ${params.maskedDestination} (valid ${params.expiresInMinutes} min, code redacted).`,
+  };
+}
+
+export function buildWhatsAppSecurityAlert(params: {
+  headline: string;
+  summary: string;
+}): string {
+  return [
+    `🔐 *මං 5හේ Security Notice*`,
+    params.headline,
+    params.summary,
+    `If this wasn't you, open Account & Security immediately to revoke sessions.`,
+  ].join('\n');
+}
+
+export function buildParentReportEmailHtml(params: {
+  guardianName: string;
+  report: ParentAssessmentReport;
+  appBaseUrl?: string;
+}): { html: string; text: string } {
+  const { guardianName, report, appBaseUrl = '' } = params;
+  const fullUrl = appBaseUrl ? `${appBaseUrl.replace(/\/$/, '')}${report.secureReportPath}` : report.secureReportPath;
+  const scoreLabel =
+    report.finalizationStatus === 'pending_manual_marking' || report.scorePercent === null
+      ? 'Awaiting Teacher Manual Marking'
+      : `${report.scorePercent}% (${report.awardedMarks}/${report.maxMarks} marks)`;
+
+  const weakHtml =
+    report.mainImprovementAreas.length > 0
+      ? report.mainImprovementAreas
+          .map(
+            (a) =>
+              `<li><strong>${escapeHtml(a.subjectName)} · ${escapeHtml(a.topicName)}</strong> (${a.accuracyPercent}%): ${escapeHtml(a.recommendedAction)}</li>`
+          )
+          .join('')
+      : '<li>All attempted topics met or exceeded the target benchmark.</li>';
+
+  const resHtml =
+    report.recommendedResources.length > 0
+      ? `<p style="margin-bottom:6px;"><strong>Recommended Learning Guides:</strong></p><ul style="margin-top:0;padding-left:18px;">${report.recommendedResources
+          .map((r) => `<li><strong>${escapeHtml(r.title)}</strong> (${escapeHtml(r.subjectName)}) — ${escapeHtml(r.summary)}</li>`)
+          .join('')}</ul>`
+      : '';
+
+  const html = renderMan5heEmailShell({
+    title: `${report.finalizationStatus === 'finalized' ? 'Final Learning Report' : 'Completion Update'} · ${escapeHtml(report.assessmentTitle)}`,
+    subtitle: `Prepared for ${escapeHtml(guardianName)} · Student: ${escapeHtml(report.studentName)} (${escapeHtml(report.studentUserIdCode)})`,
+    accentColor: report.finalizationStatus === 'finalized' ? '#158EE3' : '#D97706',
+    bodyHtml: `
+      <p style="margin-top:0;">${escapeHtml(report.parentSummary)}</p>
+      <table width="100%" cellspacing="0" cellpadding="10" style="margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;">
+        <tr>
+          <td width="33%" align="center" style="border-right:1px solid #DCEBFA;">
+            <div style="font-size:11px;color:#526A84;">Result</div>
+            <div style="font-size:16px;font-weight:800;color:#158EE3;">${escapeHtml(scoreLabel)}</div>
+          </td>
+          <td width="33%" align="center" style="border-right:1px solid #DCEBFA;">
+            <div style="font-size:11px;color:#526A84;">Correct / Needs Review</div>
+            <div style="font-size:16px;font-weight:800;color:#0F2942;">${report.correctCount} / ${report.incorrectCount + report.partialCount}</div>
+          </td>
+          <td width="33%" align="center">
+            <div style="font-size:11px;color:#526A84;">Unanswered / Pending</div>
+            <div style="font-size:16px;font-weight:800;color:#476481;">${report.unansweredCount} / ${report.pendingCount}</div>
+          </td>
+        </tr>
+      </table>
+      <p style="margin-bottom:6px;"><strong>Main Learning Focus Areas:</strong></p>
+      <ul style="margin-top:0;padding-left:18px;">${weakHtml}</ul>
+      ${resHtml}
+      <div style="padding:12px 14px;background:#EEF9EF;border:1px solid #C1E8C4;border-radius:10px;color:#1E6323;margin-bottom:16px;">
+        <strong>Encouragement Tip:</strong> ${escapeHtml(report.encouragementNote)}
+      </div>
+      <p style="margin:16px 0;">
+        <a href="${escapeHtml(fullUrl)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#158EE3;color:#FFFFFF;text-decoration:none;font-weight:700;">
+          Sign in to View Question-by-Question Teaching Guide →
+        </a>
+      </p>
+      <p style="margin-bottom:0;font-size:12px;color:#526A84;">
+        For child privacy, full question responses and teaching guides require authenticated guardian sign-in. You can update notification preferences anytime inside Profile &amp; Preferences.
+      </p>
+    `,
+  });
+
+  const text = [
+    `MAN 5HE ${report.finalizationStatus === 'finalized' ? 'Final Learning Report' : 'Completion Update'}`,
+    `Guardian: ${guardianName} | Student: ${report.studentName} (${report.studentUserIdCode})`,
+    `Assessment: ${report.assessmentTitle}`,
+    `Result: ${scoreLabel}`,
+    `Breakdown: ${report.correctCount} correct, ${report.incorrectCount} incorrect, ${report.partialCount} partial, ${report.unansweredCount} unanswered, ${report.pendingCount} pending teacher marking`,
+    `Focus Areas: ${
+      report.mainImprovementAreas.map((a) => `${a.subjectName} (${a.topicName})`).join('; ') || 'All benchmarked areas strong'
+    }`,
+    `Authenticated Report Link (Sign-in Required): ${fullUrl}`,
+  ].join('\n');
+
+  return { html, text };
+}
+
+export function buildWhatsAppParentReportPayload(params: {
+  guardianName: string;
+  report: ParentAssessmentReport;
+  appBaseUrl?: string;
+}) {
+  const { guardianName, report, appBaseUrl = '' } = params;
+  const fullUrl = appBaseUrl ? `${appBaseUrl.replace(/\/$/, '')}${report.secureReportPath}` : report.secureReportPath;
+  const scoreSummary =
+    report.finalizationStatus === 'pending_manual_marking' || report.scorePercent === null
+      ? 'Submitted (pending teacher marking)'
+      : `${report.scorePercent}% (${report.awardedMarks}/${report.maxMarks})`;
+  const focus =
+    report.mainImprovementAreas[0]
+      ? `${report.mainImprovementAreas[0].subjectName}: ${report.mainImprovementAreas[0].topicName}`
+      : 'Keep steady daily practice';
+  const templateName =
+    report.finalizationStatus === 'finalized'
+      ? 'man5he_parent_final_report_v1'
+      : 'man5he_parent_completion_notice_v1';
+
+  return {
+    templateName,
+    languageCode: 'en',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: guardianName },
+          { type: 'text', text: report.studentName },
+          { type: 'text', text: report.assessmentTitle },
+          { type: 'text', text: scoreSummary },
+          { type: 'text', text: `${report.correctCount} correct / ${report.incorrectCount + report.partialCount} to review` },
+          { type: 'text', text: focus },
+        ],
+      },
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: fullUrl }],
+      },
+    ],
+    messageText: [
+      `📘 *මං 5හේ Parent Learning Report*`,
+      `Guardian: ${guardianName} · Child: ${report.studentName}`,
+      `Completed: ${report.assessmentTitle}`,
+      `Score: ${scoreSummary} (${report.correctCount} correct, ${report.incorrectCount} incorrect, ${report.unansweredCount} unanswered)`,
+      `Focus Area: ${focus}`,
+      `Sign in to open question teaching steps: ${fullUrl}`,
+    ].join('\n'),
+  };
+}
+
+export function buildSessionReminderEmailHtml(params: {
+  recipientName: string;
+  studentName: string;
+  sessionTitle: string;
+  subjectLabel: string;
+  localDateTimeReadable: string;
+  timeZone: string;
+  durationMinutes: number;
+  timeRemainingText: string;
+  activityPath: string;
+}): { html: string; text: string } {
+  const html = renderMan5heEmailShell({
+    title: `Study Session Reminder · ${escapeHtml(params.sessionTitle)}`,
+    subtitle: `For ${escapeHtml(params.studentName)} · ${escapeHtml(params.timeRemainingText)}`,
+    accentColor: '#158EE3',
+    bodyHtml: `
+      <p style="margin-top:0;">Hi ${escapeHtml(params.recipientName)}, here is a friendly reminder for your upcoming scheduled learning activity:</p>
+      <table width="100%" cellspacing="0" cellpadding="10" style="margin:14px 0;background:#F3F9FF;border-radius:12px;border:1px solid #DCEBFA;">
+        <tr><td><strong>Session</strong></td><td align="right">${escapeHtml(params.sessionTitle)}</td></tr>
+        <tr><td><strong>Subject / Focus</strong></td><td align="right">${escapeHtml(params.subjectLabel)}</td></tr>
+        <tr><td><strong>Scheduled Time</strong></td><td align="right">${escapeHtml(params.localDateTimeReadable)} (${escapeHtml(params.timeZone)})</td></tr>
+        <tr><td><strong>Duration</strong></td><td align="right">${params.durationMinutes} minutes</td></tr>
+        <tr><td><strong>Status at Dispatch</strong></td><td align="right">${escapeHtml(params.timeRemainingText)}</td></tr>
+      </table>
+      <p style="margin:16px 0;">
+        <a href="${escapeHtml(params.activityPath)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#158EE3;color:#FFFFFF;text-decoration:none;font-weight:700;">
+          Open Scheduled Activity →
+        </a>
+      </p>
+    `,
+  });
+
+  const text = [
+    `MAN 5HE Study Reminder: ${params.sessionTitle}`,
+    `Student: ${params.studentName} | Subject: ${params.subjectLabel}`,
+    `When: ${params.localDateTimeReadable} (${params.timeZone}) · Duration: ${params.durationMinutes} min`,
+    `Notice: ${params.timeRemainingText}`,
+    `Open Activity (Sign-in Required): ${params.activityPath}`,
+  ].join('\n');
+
+  return { html, text };
+}
+
+export function buildWhatsAppReminderPayload(params: {
+  studentName: string;
+  sessionTitle: string;
+  subjectLabel: string;
+  localDateTimeReadable: string;
+  timeZone: string;
+  durationMinutes: number;
+  timeRemainingText: string;
+  activityPath: string;
+}) {
+  return {
+    templateName: 'man5he_study_reminder_v1',
+    languageCode: 'en',
+    components: [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: params.studentName },
+          { type: 'text', text: params.sessionTitle },
+          { type: 'text', text: `${params.localDateTimeReadable} (${params.timeZone})` },
+          { type: 'text', text: `${params.durationMinutes} min` },
+          { type: 'text', text: params.timeRemainingText },
+        ],
+      },
+    ],
+    messageText: [
+      `⏰ *මං 5හේ Learning Reminder*`,
+      `Student: ${params.studentName}`,
+      `Activity: ${params.sessionTitle} (${params.subjectLabel})`,
+      `Time: ${params.localDateTimeReadable} (${params.timeZone}) · ${params.durationMinutes} min`,
+      `${params.timeRemainingText}`,
+      `Start in app: ${params.activityPath}`,
+    ].join('\n'),
+  };
+}
+
+export function buildAccessibleReportHtmlDocument(report: ParentAssessmentReport): string {
+  const questionBlocks = report.items
+    .map((item, idx) => {
+      const statusText =
+        item.correctnessStatus === 'correct'
+          ? 'Correct'
+          : item.correctnessStatus === 'partially_correct'
+          ? 'Partially Correct'
+          : item.correctnessStatus === 'pending_manual'
+          ? 'Pending Teacher Marking'
+          : item.correctnessStatus === 'unanswered'
+          ? 'Unanswered'
+          : 'Needs Review (Incorrect)';
+      const imgBlock = item.imageUrl
+        ? `<p><img src="${escapeHtml(item.imageUrl)}" alt="Diagram for question ${idx + 1}" style="max-width:360px;border:1px solid #DCEBFA;border-radius:8px;" /></p>`
+        : '';
+      const guidanceHtml =
+        item.correctnessStatus === 'correct'
+          ? `<p><strong>Short Reinforcement Note:</strong> ${escapeHtml(item.teachingGuidance.shortCorrectNote)}</p>`
+          : `<div style="background:#F8FBFF;border:1px solid #CBE2FA;border-radius:10px;padding:12px;margin-top:8px;">
+              <h4 style="margin:0 0 6px 0;">Parent Teaching Guide (${escapeHtml(item.subjectName)} · ${escapeHtml(item.topicName)})</h4>
+              <p><strong>1. What this tests:</strong> ${escapeHtml(item.teachingGuidance.whatItTests)}</p>
+              <p><strong>2. Correct steps:</strong> ${item.teachingGuidance.correctSolutionSteps.map(escapeHtml).join(' ')}</p>
+              <p><strong>3. Plausible error reasons:</strong> ${item.teachingGuidance.plausibleErrorReasons.map(escapeHtml).join(' ')}</p>
+              <p><strong>4. Teaching method:</strong> ${escapeHtml(item.teachingGuidance.teachingMethod)}</p>
+              <p><strong>5. Practical examples:</strong> ${item.teachingGuidance.practicalExamples.map(escapeHtml).join(' | ')}</p>
+              <p><strong>6. Questions to ask your child:</strong> ${item.teachingGuidance.questionsToAskChild.map(escapeHtml).join(' | ')}</p>
+              <p><strong>7. Common mistakes to avoid:</strong> ${item.teachingGuidance.commonMistakesToAvoid.map(escapeHtml).join(' | ')}</p>
+              <p><strong>8. Suggested follow-up practice:</strong> ${escapeHtml(item.teachingGuidance.followupPracticeSuggestion)}</p>
+              <p style="margin-bottom:0;"><strong>9. When to seek teacher help:</strong> ${item.teachingGuidance.teacherHelpIndicators.map(escapeHtml).join(' ')}</p>
+            </div>`;
+      return `
+        <article style="border:1px solid #D5E8FA;border-radius:12px;padding:16px;margin-bottom:16px;page-break-inside:avoid;">
+          <div style="font-size:12px;color:#476481;">
+            Q${idx + 1} · ID ${escapeHtml(item.questionId)} (v${item.questionVersion}) · ${escapeHtml(item.subjectName)} / ${escapeHtml(item.topicName)} / ${escapeHtml(item.subtopicName)} · ${escapeHtml(item.difficulty)} · Marks: ${item.awardedMarks}/${item.maxMarks} · Status: <strong>${escapeHtml(statusText)}</strong>
+          </div>
+          <h3 style="margin:8px 0 4px 0;">${escapeHtml(item.questionEn)}</h3>
+          <p style="margin:0 0 8px 0;color:#476481;">${escapeHtml(item.questionSi)}</p>
+          ${imgBlock}
+          <p><strong>Student Answer:</strong> ${escapeHtml(item.studentAnswerDisplay)} &nbsp;|&nbsp; <strong>Correct Answer:</strong> ${escapeHtml(item.correctAnswerDisplay)}</p>
+          <p><strong>Explanation:</strong> ${escapeHtml(item.stepByStepExplanation)}</p>
+          <p><strong>Memory Hint:</strong> ${escapeHtml(item.hint || item.memoryTrickBody)}</p>
+          ${guidanceHtml}
+        </article>`;
+    })
+    .join('\n');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MAN 5HE Parent Learning Report — ${escapeHtml(report.studentName)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #0F2942; max-width: 900px; margin: 24px auto; padding: 0 16px; line-height: 1.5; }
+    header { border-bottom: 2px solid #158EE3; padding-bottom: 12px; margin-bottom: 20px; }
+    .meta { color: #476481; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MAN 5HE Parent Learning Intelligence Report</h1>
+    <div class="meta">Student: ${escapeHtml(report.studentName)} (${escapeHtml(report.studentUserIdCode)}) · Assessment: ${escapeHtml(report.assessmentTitle)} · Score: ${report.scorePercent !== null ? `${report.scorePercent}%` : 'Pending Teacher Mark'} (${report.awardedMarks}/${report.maxMarks})</div>
+  </header>
+  <section>
+    <h2>Performance Summary</h2>
+    <p>${escapeHtml(report.parentSummary)}</p>
+    <p><strong>Encouragement:</strong> ${escapeHtml(report.encouragementNote)}</p>
+  </section>
+  <section>
+    <h2>Question-by-Question Teaching Guide (${report.items.length} Questions)</h2>
+    ${questionBlocks}
+  </section>
+</body>
+</html>`;
+}
+
+
 

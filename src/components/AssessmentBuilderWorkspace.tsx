@@ -1183,6 +1183,7 @@ export function AssessmentBuilderWorkspace({
               <div className="space-y-1 flex-1 min-w-[260px]">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="font-mono font-bold text-[#158EE3]">{a.id}</span>
+                  <span className="font-mono text-[11px] text-[#526A84]">v{a.currentVersion || 1}</span>
                   <span
                     className={`px-2 py-0.5 rounded-md border text-[11px] font-bold ${STATUS_BADGE[a.status]}`}
                   >
@@ -1273,6 +1274,30 @@ export function AssessmentBuilderWorkspace({
                   <Printer className="w-3.5 h-3.5" />
                   <span>Export</span>
                 </button>
+                {(a.status === 'PUBLISHED' ||
+                  a.status === 'ACTIVE' ||
+                  a.status === 'CLOSED' ||
+                  a.status === 'RESULTS_RELEASED') && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setErrorMsg(null);
+                      try {
+                        const res = await api.createAssessmentNewVersion(a.id);
+                        setStatusMsg(
+                          `Created Version ${res.assessment.currentVersion} draft of ${a.id} while keeping earlier snapshots intact.`
+                        );
+                        await loadWorkspaceData();
+                      } catch (err) {
+                        setErrorMsg((err as Error).message);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 text-[11px] font-semibold text-[#0E4F80] bg-[#EBF5FF] border border-[#99CAFA] rounded-lg whitespace-nowrap"
+                  >
+                    New Version
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={async () => {
@@ -1520,12 +1545,12 @@ export function AssessmentBuilderWorkspace({
 
       {/* Printable / Export Modal */}
       {printableData && (
-        <div className="fixed inset-0 z-50 bg-[#0F2942]/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl border border-[#DCEBFA] max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-[#0F2942]/50 flex items-center justify-center p-4 print:static print:bg-white print:p-0">
+          <div className="bg-white rounded-3xl border border-[#DCEBFA] max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible print:border-0 print:rounded-none print:p-0">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#E5F0FA]">
               <div>
                 <h3 className="text-base font-display font-bold text-[#0F2942]">
-                  {printableData.assessment.title} · Printable Paper
+                  {printableData.assessment.title} · Printable Paper (v{printableData.assessment.currentVersion || 1})
                 </h3>
                 <p className="text-xs text-[#526A84]">
                   {printableData.assessment.totalMarks} Marks ·{' '}
@@ -1534,7 +1559,7 @@ export function AssessmentBuilderWorkspace({
                     : 'Untimed'}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
                 <button
                   type="button"
                   onClick={() => handleExportPrintable(printableData.assessment.id, !printWithKey)}
@@ -1556,7 +1581,7 @@ export function AssessmentBuilderWorkspace({
                   className="px-3 py-1.5 text-xs font-bold text-white bg-[#158EE3] rounded-lg flex items-center gap-1"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print</span>
+                  <span>Print / Save PDF</span>
                 </button>
                 <button
                   type="button"
