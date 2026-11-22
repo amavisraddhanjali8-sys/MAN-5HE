@@ -28,18 +28,25 @@ import type {
   GuardianStudentLink,
   LearningActivityType,
   ParentAssessmentReport,
+  ParentScheduleDecision,
+  PreScheduleWellbeingValidationResult,
   QuestionHistoryFilterMode,
   QuestionType,
   ReminderPreferenceRecord,
   ReportDeliveryRecord,
   ScheduleQuestionFilters,
   ScheduledSessionRecord,
+  StudentStudyTimeAnalytics,
+  StudentTimetable,
   SubjectCategory,
   SubtopicNode,
   TimetablePreset,
   TimetableRecurrenceType,
   TopicNode,
+  WellbeingWarningRecord,
 } from '../lib/types';
+import { RoadmapProgressReportPanel } from './RoadmapBuilderConsole';
+import { RoutineBuilderWorkspace } from './RoutineBuilderWorkspace';
 
 interface ParentLearningPlannerProps {
   user: AuthUser;
@@ -50,6 +57,8 @@ interface ParentLearningPlannerProps {
   onSelectStudentId: (studentId: string) => void;
   links: GuardianStudentLink[];
   onLinksUpdated: () => void;
+  initialReportId?: string | null;
+  onConsumeInitialReport?: () => void;
 }
 
 const TIMEZONES = [
@@ -92,6 +101,7 @@ function addDaysIsoDate(dateStr: string, days: number): string {
 }
 
 export function ParentLearningPlanner({
+  user,
   subjects,
   topics,
   subtopics,
@@ -99,6 +109,8 @@ export function ParentLearningPlanner({
   onSelectStudentId,
   links,
   onLinksUpdated,
+  initialReportId,
+  onConsumeInitialReport,
 }: ParentLearningPlannerProps) {
   const [subTab, setSubTab] = useState<'reports' | 'schedule' | 'presets'>('reports');
   const [loading, setLoading] = useState(true);
@@ -112,14 +124,18 @@ export function ParentLearningPlanner({
   const [deliveriesByReport, setDeliveriesByReport] = useState<
     Record<string, ReportDeliveryRecord[]>
   >({});
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(initialReportId || null);
   const [expandedGuides, setExpandedGuides] = useState<Record<string, boolean>>({});
   const [reportQuestionFilter, setReportQuestionFilter] = useState<'all' | 'incorrect' | 'correct'>(
     'all'
   );
 
   // Schedule State
+  const [timetables, setTimetables] = useState<StudentTimetable[]>([]);
   const [sessions, setSessions] = useState<ScheduledSessionRecord[]>([]);
+  const [sessionFilter, setSessionFilter] = useState<
+    'all' | 'today' | 'upcoming' | 'mock_exams' | 'completed' | 'missed'
+  >('all');
   const [presets, setPresets] = useState<TimetablePreset[]>([]);
   const [preferences, setPreferences] = useState<ReminderPreferenceRecord | null>(null);
   const [scheduleViewMode, setScheduleViewMode] = useState<'list' | 'calendar'>('list');
@@ -178,7 +194,13 @@ export function ParentLearningPlanner({
       insufficient: boolean;
       warnings: string[];
     };
+    wellbeing?: PreScheduleWellbeingValidationResult | null;
   } | null>(null);
+  const [studyTimeAnalytics, setStudyTimeAnalytics] =
+    useState<StudentStudyTimeAnalytics | null>(null);
+  const [wellbeingWarnings, setWellbeingWarnings] = useState<WellbeingWarningRecord[]>([]);
+  const [proceedWithWellbeingAck, setProceedWithWellbeingAck] = useState(false);
+  const [wellbeingAckNotes, setWellbeingAckNotes] = useState('');
 
   // Preset Application State
   const [presetStartDate, setPresetStartDate] = useState(todayDateInput());
@@ -231,22 +253,30 @@ export function ParentLearningPlanner({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const [repRes, schedRes] = await Promise.all([
+      const [repRes, schedRes, actRes, warnRes] = await Promise.all([
         api.getParentStudentReports(studentId),
         api.getStudentScheduleDashboard(studentId),
+        api.getStudentStudyTimeAnalytics(studentId, 7).catch(() => null),
+        api.getStudentWellbeingWarnings(studentId).catch(() => ({ warnings: [] as WellbeingWarningRecord[] })),
       ]);
       setReports(repRes.reports);
       setDeliveriesByReport(repRes.deliveriesByReport);
       if (repRes.reports.length > 0) {
-        setSelectedReportId((prev) =>
-          prev && repRes.reports.some((r) => r.id === prev) ? prev : repRes.reports[0].id
-        );
+        setSelectedReportId((prev) => {
+          if (initialReportId && repRes.reports.some((r) => r.id === initialReportId)) {
+            return initialReportId;
+          }
+          return prev && repRes.reports.some((r) => r.id === prev) ? prev : repRes.reports[0].id;
+        });
       } else {
         setSelectedReportId(null);
       }
+      setTimetables(schedRes.timetables);
       setSessions(schedRes.sessions);
       setPresets(schedRes.presets);
       setPreferences(schedRes.preferences);
+      setStudyTimeAnalytics(actRes);
+      setWellbeingWarnings(warnRes.warnings);
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -259,6 +289,14 @@ export function ParentLearningPlanner({
       loadStudentPlannerData(selectedStudentId);
     }
   }, [selectedStudentId]);
+
+  useEffect(() => {
+    if (initialReportId && reports.some((r) => r.id === initialReportId)) {
+      setSelectedReportId(initialReportId);
+      setSubTab('reports');
+      onConsumeInitialReport?.();
+    }
+  }, [initialReportId, reports]);
 
   const activeReport = reports.find((r) => r.id === selectedReportId) || reports[0] || null;
 
@@ -349,17 +387,44 @@ export function ParentLearningPlanner({
         weekdays: customWeekdays,
         exceptionDates: exceptions,
         filterCriteria: buildFilterCriteria(),
+        wellbeingDecision: proceedWithWellbeingAck ? 'proceeded_with_acknowledgement' : 'pending',
+        wellbeingDecisionNotes: wellbeingAckNotes.trim() || undefined,
       });
       setStatusMsg(
-        `Created "${res.timetable.title}" with ${res.sessions.length} scheduled session(s) and reminder jobs.`
+        `Created "${res.timetable.title}" with ${res.sessions.length} scheduled session(s) and reminder jobs.${
+          res.wellbeingRecord?.warning
+            ? ` Wellbeing guidance logged: ${res.wellbeingRecord.warning.supportiveTitle}`
+            : ''
+        }`
       );
       setCustomTitle('');
       setSchedulePreview(null);
+      setProceedWithWellbeingAck(false);
+      setWellbeingAckNotes('');
       await loadStudentPlannerData(selectedStudentId);
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleAcknowledgeWarning = async (
+    warningId: string,
+    decision: ParentScheduleDecision
+  ) => {
+    setErrorMsg(null);
+    setStatusMsg(null);
+    try {
+      await api.acknowledgeWellbeingWarning(
+        warningId,
+        decision,
+        'Reviewed from Parent Learning Planner'
+      );
+      setStatusMsg(`Wellbeing pacing guidance marked as "${decision.replace(/_/g, ' ')}".`);
+      await loadStudentPlannerData(selectedStudentId);
+    } catch (err) {
+      setErrorMsg((err as Error).message);
     }
   };
 
@@ -414,6 +479,23 @@ export function ParentLearningPlanner({
     try {
       await api.updateScheduledSessionStatus(sessionId, action);
       setStatusMsg(`Session ${action === 'pause' ? 'paused' : action === 'resume' ? 'resumed' : 'cancelled'}.`);
+      await loadStudentPlannerData(selectedStudentId);
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
+  };
+
+  const handleTimetableStatusAction = async (
+    timetableId: string,
+    action: 'pause' | 'resume' | 'cancel'
+  ) => {
+    setErrorMsg(null);
+    setStatusMsg(null);
+    try {
+      const res = await api.updateTimetableStatus(timetableId, action);
+      setStatusMsg(
+        `Timetable "${res.timetable.title}" set to ${res.timetable.status} (${res.updatedSessions} session(s) updated).`
+      );
       await loadStudentPlannerData(selectedStudentId);
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -504,9 +586,30 @@ export function ParentLearningPlanner({
       (filterSubjectIds.length === 0 || filterSubjectIds.includes(st.subjectId))
   );
 
+  const todayUtcDate = new Date(nowMs).toISOString().slice(0, 10);
+  const filteredSessions = sessions.filter((s) => {
+    if (sessionFilter === 'today') {
+      const localDay = formatUtcInTimeZone(s.scheduledStartUtc, s.timezone).dateStr;
+      return localDay === todayUtcDate && s.status !== 'CANCELLED';
+    }
+    if (sessionFilter === 'upcoming') {
+      return s.status === 'SCHEDULED' || s.status === 'IN_PROGRESS' || s.status === 'PAUSED';
+    }
+    if (sessionFilter === 'mock_exams') {
+      return s.activityType === 'mock_exam' && s.status !== 'CANCELLED';
+    }
+    if (sessionFilter === 'completed') {
+      return s.status === 'COMPLETED';
+    }
+    if (sessionFilter === 'missed') {
+      return s.status === 'MISSED';
+    }
+    return true;
+  });
+
   // Calendar grouping for schedule calendar view
   const calendarGroups: Record<string, ScheduledSessionRecord[]> = {};
-  for (const s of sessions) {
+  for (const s of filteredSessions) {
     const dayKey = formatUtcInTimeZone(s.scheduledStartUtc, s.timezone).dateStr || 'Unscheduled';
     if (!calendarGroups[dayKey]) calendarGroups[dayKey] = [];
     calendarGroups[dayKey].push(s);
@@ -614,7 +717,13 @@ export function ParentLearningPlanner({
 
       {/* TAB 1: REPORTS & PARENT TEACHING GUIDES */}
       {subTab === 'reports' && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        <div className="space-y-6">
+          <RoadmapProgressReportPanel
+            studentId={selectedStudentId}
+            studentName={activeLink?.studentName || 'Linked Student'}
+            onScheduled={() => loadStudentPlannerData(selectedStudentId)}
+          />
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           {/* Left column: Reports List */}
           <div className="xl:col-span-4 bg-white rounded-3xl border border-[#DCEBFA] p-5 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[#E5F0FA]">
@@ -1140,12 +1249,145 @@ export function ParentLearningPlanner({
               </>
             )}
           </div>
+          </div>
         </div>
       )}
 
-      {/* TAB 2: SMART TIMETABLE BUILDER & CALENDAR */}
+      {/* TAB 2: SMART TIMETABLE BUILDER, STUDY-TIME INTELLIGENCE & CALENDAR */}
       {subTab === 'schedule' && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        <div className="space-y-6">
+          {/* Study-Time Intelligence & Healthy Pacing Panel */}
+          {studyTimeAnalytics && (
+            <div
+              data-testid="parent-study-time-intelligence"
+              className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-[#E5F0FA]">
+                <div>
+                  <div className="text-xs font-bold text-[#158EE3]">
+                    Study-Time Intelligence &amp; Wellbeing Pacing · {studyTimeAnalytics.ruleVersionLabel}
+                  </div>
+                  <h2 className="text-base font-display font-bold text-[#0F2942]">
+                    Last 7 Days: Scheduled Plan vs. Observed Active Learning
+                  </h2>
+                </div>
+                <div className="text-[11px] text-[#526A84] tabular-nums">
+                  Guideline: {studyTimeAnalytics.guidelineSummary.dailyWarningMinutes}m/day advisory ·{' '}
+                  {studyTimeAnalytics.guidelineSummary.continuousSessionWarningMinutes}m focus +{' '}
+                  {studyTimeAnalytics.guidelineSummary.recommendedBreakMinutes}m break
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs tabular-nums">
+                <div className="p-3 rounded-2xl bg-[#F3F9FF] border border-[#DCEBFA]">
+                  <div className="text-[11px] text-[#526A84]">Scheduled (7d)</div>
+                  <div className="text-xl font-display font-extrabold text-[#0F2942]">
+                    {studyTimeAnalytics.weeklyTotals.scheduledMinutes}m
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA]">
+                  <div className="text-[11px] text-[#526A84]">Session Open</div>
+                  <div className="text-xl font-display font-extrabold text-[#158EE3]">
+                    {studyTimeAnalytics.weeklyTotals.openMinutes}m
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#EEF9EF] border border-[#C1E8C4]">
+                  <div className="text-[11px] text-[#526A84]">Observed Active</div>
+                  <div className="text-xl font-display font-extrabold text-[#2E7D32]">
+                    {studyTimeAnalytics.weeklyTotals.activeMinutes}m
+                  </div>
+                  <div className="text-[10px] text-[#476481]">
+                    Practice {studyTimeAnalytics.weeklyTotals.practiceActiveMinutes}m · Exam{' '}
+                    {studyTimeAnalytics.weeklyTotals.mockExamActiveMinutes}m
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#FFF8EB] border border-[#F3D19C]">
+                  <div className="text-[11px] text-[#526A84]">Idle / Unverified</div>
+                  <div className="text-xl font-display font-extrabold text-[#9A5B00]">
+                    {studyTimeAnalytics.weeklyTotals.idleMinutes}m
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA]">
+                  <div className="text-[11px] text-[#526A84]">Background Tab</div>
+                  <div className="text-xl font-display font-extrabold text-[#526A84]">
+                    {studyTimeAnalytics.weeklyTotals.backgroundMinutes}m
+                  </div>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#F3F9FF] border border-[#CBE2FA]">
+                  <div className="text-[11px] text-[#526A84]">Breaks Taken</div>
+                  <div className="text-xl font-display font-extrabold text-[#0E4F80]">
+                    {studyTimeAnalytics.weeklyTotals.breakMinutes}m
+                  </div>
+                  <div className="text-[10px] text-[#526A84]">
+                    Peak streak: {studyTimeAnalytics.weeklyTotals.maxContinuousSessionMinutes}m
+                  </div>
+                </div>
+              </div>
+
+              {studyTimeAnalytics.uncertaintyStatements.length > 0 && (
+                <div className="p-3 rounded-2xl bg-[#F8FBFF] border border-[#DCEBFA] text-[11px] text-[#526A84]">
+                  <strong>Measurement Transparency:</strong>{' '}
+                  {studyTimeAnalytics.uncertaintyStatements[0]}
+                </div>
+              )}
+
+              {wellbeingWarnings.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <div className="text-xs font-bold text-[#9A5B00]">
+                    Supportive Pacing Recommendations ({wellbeingWarnings.length})
+                  </div>
+                  {wellbeingWarnings.slice(0, 3).map((w) => (
+                    <div
+                      key={w.id}
+                      data-testid={`parent-wellbeing-warning-${w.id}`}
+                      className="p-3.5 rounded-2xl bg-[#FFF9EE] border border-[#F5D399] flex flex-wrap items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="space-y-0.5 max-w-2xl">
+                        <div className="font-bold text-[#0F2942]">{w.supportiveTitle}</div>
+                        <div className="text-[#613C00]">{w.guidanceSummary}</div>
+                        <div className="text-[11px] text-[#9A5B00]">
+                          Status: {w.parentDecision.replace(/_/g, ' ')} · Scheduled:{' '}
+                          {w.scheduledMinutes}m
+                        </div>
+                      </div>
+                      {w.parentDecision === 'pending' && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleAcknowledgeWarning(w.id, 'adjusted')}
+                            className="px-3 py-1.5 font-bold text-white bg-[#2E7D32] rounded-xl"
+                          >
+                            I Adjusted Schedule
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleAcknowledgeWarning(w.id, 'proceeded_with_acknowledgement')
+                            }
+                            className="px-3 py-1.5 font-semibold text-[#7C4D00] bg-white border border-[#F3D19C] rounded-xl"
+                          >
+                            Acknowledge Guidance
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* E07: Advanced Weighted Academic Routine Builder & Teacher Evaluation */}
+          <RoutineBuilderWorkspace
+            user={user}
+            studentId={selectedStudentId}
+            studentName={activeLink?.studentName || 'Linked Student'}
+            subjects={subjects}
+            topics={topics}
+            onRoutineActivated={() => loadStudentPlannerData(selectedStudentId)}
+          />
+
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           {/* Custom Smart Timetable Builder */}
           <form
             onSubmit={handleCreateCustomTimetable}
@@ -1485,7 +1727,7 @@ export function ParentLearningPlanner({
                     <div className="font-semibold text-[#476481] mb-1">Difficulty Tiers</div>
                     <div className="flex flex-wrap gap-1">
                       {(
-                        ['Simple', 'Moderate', 'Challenging', 'Scholarship Master'] as DifficultyTier[]
+                        ['Simple', 'Moderate', 'Challenging', 'Master'] as DifficultyTier[]
                       ).map((tier) => (
                         <button
                           key={tier}
@@ -1610,16 +1852,56 @@ export function ParentLearningPlanner({
             )}
 
             {schedulePreview && (
-              <div className="p-3 rounded-2xl bg-[#F3F9FF] border border-[#CBE2FA] text-xs space-y-1.5">
-                <div className="font-bold text-[#0F2942] tabular-nums">
-                  Schedule Preview: {schedulePreview.occurrenceCount} session(s) ·{' '}
-                  {schedulePreview.conflicts.length} conflict(s)
-                </div>
-                {schedulePreview.conflicts.map((c, idx) => (
-                  <div key={idx} className="text-[11px] text-[#C62828]">
-                    Conflict: {c.reason}
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-2xl bg-[#F3F9FF] border border-[#CBE2FA] text-xs space-y-1.5">
+                  <div className="font-bold text-[#0F2942] tabular-nums">
+                    Schedule Preview: {schedulePreview.occurrenceCount} session(s) ·{' '}
+                    {schedulePreview.conflicts.length} conflict(s)
                   </div>
-                ))}
+                  {schedulePreview.conflicts.map((c, idx) => (
+                    <div key={idx} className="text-[11px] text-[#C62828]">
+                      Conflict: {c.reason}
+                    </div>
+                  ))}
+                </div>
+
+                {schedulePreview.wellbeing &&
+                  schedulePreview.wellbeing.severity !== 'nominal' && (
+                    <div
+                      data-testid="pre-schedule-wellbeing-preview"
+                      className="p-3.5 rounded-2xl bg-[#FFF9EE] border border-[#F5D399] text-xs space-y-2 text-[#613C00]"
+                    >
+                      <div className="font-bold text-[#0F2942]">
+                        {schedulePreview.wellbeing.supportiveTitle}
+                      </div>
+                      <p>{schedulePreview.wellbeing.supportiveMessage}</p>
+                      {schedulePreview.wellbeing.exceededRules.map((er, i) => (
+                        <div key={i} className="text-[11px] font-semibold">
+                          • {er}
+                        </div>
+                      ))}
+                      {schedulePreview.wellbeing.balancedSuggestions.slice(0, 2).map((sg, i) => (
+                        <div
+                          key={i}
+                          className="p-2 rounded-xl bg-white/80 border border-[#FDE1B2] text-[11px]"
+                        >
+                          <strong>Balanced Tip ({sg.date}):</strong> {sg.suggestionText}{' '}
+                          {sg.recommendedBreakPlan}
+                        </div>
+                      ))}
+                      <label className="flex items-start gap-2 pt-1 cursor-pointer text-[11px]">
+                        <input
+                          type="checkbox"
+                          checked={proceedWithWellbeingAck}
+                          onChange={(e) => setProceedWithWellbeingAck(e.target.checked)}
+                          className="accent-[#F96A1B] mt-0.5"
+                        />
+                        <span>
+                          I have reviewed this supportive balance guidance and understand break reminders will help keep learning calm.
+                        </span>
+                      </label>
+                    </div>
+                  )}
               </div>
             )}
 
@@ -1687,9 +1969,87 @@ export function ParentLearningPlanner({
               </div>
             </div>
 
-            {sessions.length === 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#E5F0FA]">
+              <div className="flex flex-wrap items-center gap-1">
+                {(
+                  [
+                    { id: 'all', label: `All (${sessions.length})` },
+                    { id: 'today', label: 'Today' },
+                    { id: 'upcoming', label: 'Upcoming' },
+                    { id: 'mock_exams', label: 'Mock Exams' },
+                    { id: 'completed', label: 'Completed' },
+                    { id: 'missed', label: 'Missed' },
+                  ] as const
+                ).map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    data-testid={`session-filter-${chip.id}`}
+                    onClick={() => setSessionFilter(chip.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                      sessionFilter === chip.id
+                        ? 'bg-[#0F2942] text-white'
+                        : 'bg-[#F3F9FF] text-[#526A84] hover:text-[#0F2942]'
+                    }`}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {timetables.filter((tt) => tt.status !== 'CANCELLED').length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold text-[#526A84]">
+                  Active &amp; Paused Study Routines ({timetables.filter((tt) => tt.status !== 'CANCELLED').length})
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {timetables
+                    .filter((tt) => tt.status !== 'CANCELLED')
+                    .map((tt) => (
+                      <div
+                        key={tt.id}
+                        className="px-3 py-1.5 rounded-xl bg-[#F8FBFF] border border-[#DCEBFA] flex items-center gap-2 text-[11px]"
+                      >
+                        <span className="font-bold text-[#0F2942]">{tt.title}</span>
+                        <span className="text-[#526A84]">
+                          ({tt.recurrenceType} · {tt.status})
+                        </span>
+                        {tt.status === 'PAUSED' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleTimetableStatusAction(tt.id, 'resume')}
+                            className="font-bold text-[#2E7D32] hover:underline"
+                          >
+                            Resume
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleTimetableStatusAction(tt.id, 'pause')}
+                            className="font-bold text-[#9A5B00] hover:underline"
+                          >
+                            Pause
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleTimetableStatusAction(tt.id, 'cancel')}
+                          className="font-bold text-[#C62828] hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {filteredSessions.length === 0 ? (
               <div className="py-10 text-center text-xs text-[#526A84]">
-                No scheduled learning activities yet. Create a custom smart schedule or apply a teacher/admin preset!
+                {sessions.length === 0
+                  ? 'No scheduled learning activities yet. Create a custom smart schedule or apply a teacher/admin preset!'
+                  : 'No scheduled sessions match this filter.'}
               </div>
             ) : scheduleViewMode === 'calendar' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[680px] overflow-y-auto">
@@ -1723,7 +2083,7 @@ export function ParentLearningPlanner({
               </div>
             ) : (
               <div className="space-y-3 max-h-[700px] overflow-y-auto pr-1">
-                {sessions.map((s) => {
+                {filteredSessions.map((s) => {
                   const countdown = computeSessionCountdownState(s, nowMs);
                   const fmt = formatUtcInTimeZone(s.scheduledStartUtc, s.timezone);
                   const isEditingThis = rescheduleId === s.id;
@@ -1872,6 +2232,7 @@ export function ParentLearningPlanner({
                 })}
               </div>
             )}
+          </div>
           </div>
         </div>
       )}

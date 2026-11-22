@@ -42,8 +42,12 @@ import { InterventionWorkspace } from './InterventionWorkspace';
 import { KnowledgePublishingConsole } from './KnowledgePublishingConsole';
 import { QuestionBankManager } from './QuestionBankManager';
 import { QuestionReviewDrawer } from './QuestionReviewDrawer';
+import { RoadmapBuilderConsole } from './RoadmapBuilderConsole';
+import { RoutineReviewConsole } from './RoutineReviewConsole';
 import { ScopedAnalyticsView } from './ScopedAnalyticsView';
 import { TimetablePresetManager } from './TimetablePresetManager';
+import { WellbeingCaseConsole } from './WellbeingCaseConsole';
+import { WellbeingRulesManager } from './WellbeingRulesManager';
 
 export type AdminSectionId =
   | 'overview'
@@ -209,8 +213,11 @@ export function AdminStudio({
   const [recoveryReviewNotes, setRecoveryReviewNotes] = useState<Record<string, string>>({});
   const [recoveryOverrideContact, setRecoveryOverrideContact] = useState<Record<string, string>>({});
 
-  // Enhancement 05: Timetable Presets & Multi-Guardian Family Links
-  const [papersSubTab, setPapersSubTab] = useState<'assessments' | 'presets'>('assessments');
+  // Enhancement 05, 06, 07 & 08: Timetable Presets, Routines, Roadmaps, Family Links & Wellbeing Sub-Tabs
+  const [papersSubTab, setPapersSubTab] = useState<
+    'assessments' | 'presets' | 'routines' | 'roadmaps'
+  >('assessments');
+  const [interventionsSubTab, setInterventionsSubTab] = useState<'academic' | 'wellbeing'>('academic');
   const [guardianLinks, setGuardianLinks] = useState<GuardianStudentLink[]>([]);
   const [guardianDirectory, setGuardianDirectory] = useState<
     { id: string; name: string; email: string; userIdCode: string }[]
@@ -375,7 +382,12 @@ export function AdminStudio({
   useEffect(() => {
     if (currentSection === 'people') loadPeopleData();
     if (currentSection === 'settings') loadSettingsData();
-    if (currentSection === 'interventions') loadOversightNotifications();
+    if (currentSection === 'interventions') {
+      loadOversightNotifications();
+      if (teachers.length === 0 || scopedStudents.length === 0) {
+        loadPeopleData();
+      }
+    }
   }, [currentSection]);
 
   // Initialize blank white canvas pad when switching to curriculum tab
@@ -903,11 +915,44 @@ export function AdminStudio({
               >
                 Timetable Presets Library
               </button>
+              <button
+                type="button"
+                data-testid="admin-tab-routines"
+                onClick={() => setPapersSubTab('routines')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  papersSubTab === 'routines'
+                    ? 'bg-[#6D28D9] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Routine Evaluations
+              </button>
+              <button
+                type="button"
+                data-testid="admin-tab-roadmaps"
+                onClick={() => setPapersSubTab('roadmaps')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  papersSubTab === 'roadmaps'
+                    ? 'bg-[#0F2942] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Quest Roadmaps
+              </button>
             </div>
           </div>
 
           {papersSubTab === 'presets' ? (
             <TimetablePresetManager
+              role="admin"
+              user={effectiveAdminUser}
+              subjects={subjects}
+              topics={topics}
+            />
+          ) : papersSubTab === 'routines' ? (
+            <RoutineReviewConsole role="admin" user={effectiveAdminUser} subjects={subjects} />
+          ) : papersSubTab === 'roadmaps' ? (
+            <RoadmapBuilderConsole
               role="admin"
               user={effectiveAdminUser}
               subjects={subjects}
@@ -1461,15 +1506,56 @@ export function AdminStudio({
         </div>
       )}
 
-      {/* SECTION 5: INTERVENTIONS & ALERT OVERSIGHT */}
+      {/* SECTION 5: INTERVENTIONS, WELLBEING CASES & ALERT OVERSIGHT */}
       {currentSection === 'interventions' && (
         <div className="space-y-6">
-          <InterventionWorkspace
-            subjects={subjects}
-            topics={topics}
-            initialCaseId={selectedCaseId}
-            onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
-          />
+          <div className="bg-white rounded-2xl border border-[#DCEBFA] p-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-semibold text-[#526A84] px-2">
+              Oversee academic repeated-error interventions or manage child wellbeing cases, safeguarding escalation &amp; audit exports
+            </div>
+            <div className="flex items-center gap-1 p-1 bg-[#F3F9FF] rounded-xl border border-[#DCEBFA]">
+              <button
+                type="button"
+                data-testid="admin-interventions-academic"
+                onClick={() => setInterventionsSubTab('academic')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  interventionsSubTab === 'academic'
+                    ? 'bg-[#158EE3] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Academic Repeated-Error Cases
+              </button>
+              <button
+                type="button"
+                data-testid="admin-interventions-wellbeing"
+                onClick={() => setInterventionsSubTab('wellbeing')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  interventionsSubTab === 'wellbeing'
+                    ? 'bg-[#0F2942] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Wellbeing, Safeguarding &amp; Audit Docs
+              </button>
+            </div>
+          </div>
+
+          {interventionsSubTab === 'wellbeing' ? (
+            <WellbeingCaseConsole
+              role="admin"
+              user={effectiveAdminUser}
+              teachers={teachers}
+              students={scopedStudents}
+            />
+          ) : (
+            <InterventionWorkspace
+              subjects={subjects}
+              topics={topics}
+              initialCaseId={selectedCaseId}
+              onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
+            />
+          )}
 
           <div className="bg-white rounded-3xl border border-[#DCEBFA] p-6 space-y-4">
             <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#E5F0FA]">
@@ -1762,6 +1848,12 @@ export function AdminStudio({
               </div>
             </div>
           </div>
+
+          <WellbeingRulesManager
+            role="admin"
+            user={effectiveAdminUser}
+            subjects={subjects}
+          />
         </div>
       )}
 

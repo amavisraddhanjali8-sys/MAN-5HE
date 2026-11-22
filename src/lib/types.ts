@@ -367,7 +367,8 @@ export interface NotificationRecord {
     | 'knowledge_correction'
     | 'security_alert'
     | 'account_recovery'
-    | 'system_update';
+    | 'system_update'
+    | 'routine_review';
   title: string;
   body: string;
   relatedCaseId?: string | null;
@@ -419,6 +420,7 @@ export interface UserAccount {
   role: UserRole;
   grade?: string; // e.g. 'Grade 5'
   delegatedPublishSubjects?: string[];
+  safeguardingDesignated?: boolean;
   active?: boolean;
   guardianName?: string;
   guardianUserId?: string | null;
@@ -486,9 +488,12 @@ export interface EmailLog {
     | 'progress_report'
     | 'intervention'
     | 'knowledge_publication'
-    | 'reminder';
+    | 'reminder'
+    | 'wellbeing_guidance'
+    | 'routine_review';
   otpCode?: string;
   htmlBody: string;
+  textBody?: string;
   sentAt: string;
 }
 
@@ -505,7 +510,9 @@ export interface WhatsAppLog {
     | 'otp_recovery'
     | 'otp_contact_change'
     | 'security_alert'
-    | 'reminder';
+    | 'reminder'
+    | 'wellbeing_guidance'
+    | 'routine_review';
   messageText: string;
   deliveryStatus: 'queued' | 'delivered' | 'failed' | 'skipped_unverified';
   sentAt: string;
@@ -1299,4 +1306,1295 @@ export interface ReminderJobRecord {
   errorMessage?: string | null;
   createdAt: string;
 }
+
+// --- Enhancement 06: Child Learning Wellbeing, Study-Time Intelligence & Safeguarding Audit ---
+export type StudyActivityEventType =
+  | 'session_open'
+  | 'interaction_heartbeat'
+  | 'question_viewed'
+  | 'answer_selected'
+  | 'hint_opened'
+  | 'tab_backgrounded'
+  | 'tab_resumed'
+  | 'network_disconnected'
+  | 'network_reconnected'
+  | 'break_started'
+  | 'break_ended'
+  | 'paused'
+  | 'resumed'
+  | 'session_closed';
+
+export type StudyActivityContextMode = 'practice' | 'timed_exam' | 'scheduled_session' | 'flashcards';
+
+export interface StudyActivityEventInput {
+  idempotencyKey: string;
+  sessionKey: string;
+  eventType: StudyActivityEventType;
+  occurredAt?: string;
+  contextMode: StudyActivityContextMode;
+  deviceId: string;
+  tabId: string;
+  assessmentId?: string | null;
+  scheduledSessionId?: string | null;
+  paperId?: string | null;
+  subjectId?: string | null;
+  questionId?: string | null;
+  durationHintSeconds?: number;
+}
+
+export interface StudyActivityEventRecord {
+  id: string;
+  userId: string;
+  idempotencyKey: string;
+  sessionKey: string;
+  eventType: StudyActivityEventType;
+  occurredAt: string;
+  serverReceivedAt: string;
+  contextMode: StudyActivityContextMode;
+  deviceId: string;
+  tabId: string;
+  assessmentId: string | null;
+  scheduledSessionId: string | null;
+  paperId: string | null;
+  subjectId: string | null;
+  questionId: string | null;
+}
+
+export interface SessionActivitySummary {
+  sessionKey: string;
+  studentId: string;
+  contextMode: StudyActivityContextMode;
+  assessmentId: string | null;
+  scheduledSessionId: string | null;
+  paperId: string | null;
+  subjectId: string | null;
+  startedAt: string;
+  endedAt: string;
+  scheduledDurationSeconds: number;
+  openDurationSeconds: number;
+  activeDurationSeconds: number;
+  idleDurationSeconds: number;
+  backgroundDurationSeconds: number;
+  breakTotalSeconds: number;
+  breakCount: number;
+  continuousPeakSeconds: number;
+  interruptionCount: number;
+  deviceCount: number;
+  tabCount: number;
+  inactivityThresholdSeconds: number;
+  uncertaintyNote: string;
+  updatedAt: string;
+}
+
+export interface DailyStudyBreakdownPoint {
+  date: string;
+  scheduledMinutes: number;
+  openMinutes: number;
+  activeMinutes: number;
+  idleMinutes: number;
+  backgroundMinutes: number;
+  breakMinutes: number;
+  practiceActiveMinutes: number;
+  mockExamActiveMinutes: number;
+  continuousPeakMinutes: number;
+  sessionsCount: number;
+}
+
+export interface StudentStudyTimeAnalytics {
+  studentId: string;
+  studentName: string;
+  grade: string;
+  timezone: string;
+  ruleVersionId: string;
+  ruleVersionLabel: string;
+  todaySummary: DailyStudyBreakdownPoint;
+  weeklyTotals: {
+    scheduledMinutes: number;
+    openMinutes: number;
+    activeMinutes: number;
+    idleMinutes: number;
+    backgroundMinutes: number;
+    breakMinutes: number;
+    practiceActiveMinutes: number;
+    mockExamActiveMinutes: number;
+    maxContinuousSessionMinutes: number;
+    daysExceedingDailyGuideline: number;
+  };
+  dailySeries: DailyStudyBreakdownPoint[];
+  recentSessions: SessionActivitySummary[];
+  uncertaintyStatements: string[];
+  guidelineSummary: {
+    dailyWarningMinutes: number;
+    dailyMaxMinutes: number;
+    weeklyWarningMinutes: number;
+    weeklyMaxMinutes: number;
+    continuousSessionWarningMinutes: number;
+    recommendedBreakMinutes: number;
+    breakIntervalMinutes: number;
+    educationalStandardNote: string;
+  };
+}
+
+export type WellbeingWarningSeverity =
+  | 'nominal'
+  | 'advisory'
+  | 'supportive_warning'
+  | 'staff_review_trigger';
+
+export type TimedAssessmentBreakPolicy =
+  | 'warn_non_blocking_unless_paused'
+  | 'suggest_pause_after_section'
+  | 'strict_no_interrupt_until_submit';
+
+export type WellbeingRuleApprovalStatus = 'DRAFT' | 'PENDING_REVIEW' | 'ACTIVE' | 'ARCHIVED';
+
+export interface WellbeingRuleVersion {
+  id: string;
+  ruleSetId: string;
+  versionNumber: number;
+  grade: string;
+  subjectId: string | null;
+  title: string;
+  educationalStandardNote: string;
+  dailyWarningMinutes: number;
+  dailyMaxMinutes: number;
+  weeklyWarningMinutes: number;
+  weeklyMaxMinutes: number;
+  continuousSessionWarningMinutes: number;
+  recommendedBreakMinutes: number;
+  breakIntervalMinutes: number;
+  inactivityThresholdSeconds: number;
+  reminderFrequencyMinutes: number;
+  warningSeverity: WellbeingWarningSeverity;
+  timedAssessmentBreakPolicy: TimedAssessmentBreakPolicy;
+  staffReviewDailyExceedCount: number;
+  staffReviewConsecutiveDays: number;
+  escalationContinuousDays: number;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  approvalStatus: WellbeingRuleApprovalStatus;
+  createdByUserId: string;
+  createdByName: string;
+  approvedByAdminId: string | null;
+  approvedAt: string | null;
+  changeNote: string;
+  createdAt: string;
+}
+
+export interface WellbeingRuleSet {
+  id: string;
+  title: string;
+  grade: string;
+  subjectId: string | null;
+  isPlatformWide: boolean;
+  currentActiveVersionId: string | null;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+  versions: WellbeingRuleVersion[];
+}
+
+export type ParentScheduleDecision =
+  | 'pending'
+  | 'adjusted'
+  | 'proceeded_with_acknowledgement'
+  | 'cancelled';
+
+export interface WellbeingSuggestedChange {
+  date: string;
+  currentScheduledMinutes: number;
+  recommendedMaxMinutes: number;
+  suggestionText: string;
+  recommendedBreakPlan: string;
+}
+
+export interface PreScheduleWellbeingValidationResult {
+  studentId: string;
+  ruleVersionId: string;
+  ruleTitle: string;
+  severity: WellbeingWarningSeverity;
+  exceedsDailyWarning: boolean;
+  exceedsDailyMax: boolean;
+  exceedsWeeklyWarning: boolean;
+  exceedsWeeklyMax: boolean;
+  exceedsContinuousThreshold: boolean;
+  insufficientPlannedBreaks: boolean;
+  requiresStaffReview: boolean;
+  proposedMinutesTotal: number;
+  peakDailyCombinedMinutes: number;
+  peakWeeklyCombinedMinutes: number;
+  peakContinuousMinutes: number;
+  supportiveTitle: string;
+  supportiveMessage: string;
+  educationalGuidelineNotice: string;
+  exceededRules: string[];
+  balancedSuggestions: WellbeingSuggestedChange[];
+  dailyProjections: {
+    date: string;
+    existingMinutes: number;
+    proposedMinutes: number;
+    combinedMinutes: number;
+  }[];
+}
+
+export interface WellbeingWarningRecord {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  guardianUserId: string | null;
+  triggerSource: 'pre_schedule' | 'live_session' | 'daily_threshold_sweep';
+  ruleVersionId: string;
+  severity: WellbeingWarningSeverity;
+  scheduledMinutes: number;
+  observedActiveMinutes: number;
+  continuousMinutes: number;
+  supportiveTitle: string;
+  guidanceSummary: string;
+  suggestedAdjustmentJson: string;
+  parentDecision: ParentScheduleDecision;
+  parentDecisionNotes: string | null;
+  parentDecidedAt: string | null;
+  notifiedChannels: string[];
+  linkedCaseId: string | null;
+  createdAt: string;
+}
+
+export type WellbeingCaseStatus =
+  | 'DETECTED'
+  | 'PENDING_REVIEW'
+  | 'UNDER_REVIEW'
+  | 'PARENT_CONTACTED'
+  | 'FOLLOW_UP'
+  | 'RESOLVED'
+  | 'DISMISSED'
+  | 'REOPENED'
+  | 'REFERRED_SAFEGUARDING';
+
+export type WellbeingCasePriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface WellbeingCaseRecord {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentGrade: string;
+  ongoingConcernKey: string;
+  title: string;
+  triggerCategory: string;
+  status: WellbeingCaseStatus;
+  priority: WellbeingCasePriority;
+  ruleVersionId: string;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+  subjectScopeIds: string[];
+  isSafeguardingRestricted: boolean;
+  dismissalReason: string | null;
+  resolutionSummary: string | null;
+  summaryOfConcern: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface WellbeingCaseNoteRecord {
+  id: string;
+  caseId: string;
+  authorUserId: string;
+  authorName: string;
+  authorRole: UserRole | 'system';
+  noteType: 'system_detection' | 'staff_review' | 'amendment';
+  factualObservations: string;
+  staffInterpretation: string;
+  limitationsNoted: string;
+  supersedesNoteId: string | null;
+  versionNumber: number;
+  createdAt: string;
+}
+
+export interface ParentContactRecord {
+  id: string;
+  noteGroupId: string;
+  versionNumber: number;
+  supersedesNoteId: string | null;
+  amendmentReason: string | null;
+  isFinalized: boolean;
+  finalizedAt: string | null;
+  caseId: string;
+  studentId: string;
+  guardianUserId: string | null;
+  staffUserId: string;
+  staffName: string;
+  contactAt: string;
+  contactMethod: 'phone' | 'whatsapp' | 'email' | 'in_person' | 'video_call';
+  contactOutcome: 'connected' | 'left_message' | 'no_response' | 'scheduled_meeting';
+  factualObservations: string;
+  directQuotations: string;
+  staffOpinions: string;
+  guidanceProvided: string;
+  parentResponse: string;
+  agreedActions: string;
+  followUpDate: string | null;
+  evidenceRefs: { type: string; id: string; label: string }[];
+  resultingCaseStatus: WellbeingCaseStatus;
+  createdAt: string;
+}
+
+export interface WellbeingFollowupActionRecord {
+  id: string;
+  caseId: string;
+  title: string;
+  description: string;
+  ownerUserId: string;
+  ownerName: string;
+  dueDate: string;
+  status: 'PENDING' | 'COMPLETED' | 'CANCELLED';
+  completionNotes: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface WellbeingCaseEvidenceRecord {
+  id: string;
+  caseId: string;
+  evidenceType:
+    | 'wellbeing_warning'
+    | 'session_activity'
+    | 'timetable'
+    | 'assessment_attempt'
+    | 'parent_contact';
+  referenceId: string;
+  summary: string;
+  snapshotJson: string;
+  attachedByUserId: string;
+  createdAt: string;
+}
+
+export interface WellbeingCaseDetail {
+  caseRecord: WellbeingCaseRecord;
+  evidence: WellbeingCaseEvidenceRecord[];
+  notes: WellbeingCaseNoteRecord[];
+  parentContacts: ParentContactRecord[];
+  followUpActions: WellbeingFollowupActionRecord[];
+  assignments: {
+    id: string;
+    assignedToUserId: string;
+    assignedToName: string;
+    assignedByUserId: string;
+    assignedByName: string;
+    reason: string;
+    createdAt: string;
+  }[];
+  relatedWarnings: WellbeingWarningRecord[];
+  recentActivitySummary: StudentStudyTimeAnalytics;
+}
+
+export type SafeguardingDecisionStatus =
+  | 'ASSESSMENT_IN_PROGRESS'
+  | 'MONITORING_WITH_SUPPORT'
+  | 'NOT_REFERRED_NO_RISK'
+  | 'DRAFT_REFERRAL_PREPARED'
+  | 'APPROVED_FOR_REFERRAL'
+  | 'REFERRED_TO_AUTHORITY';
+
+export interface SafeguardingChronologyEntry {
+  occurredAt: string;
+  source: string;
+  factualDescription: string;
+  limitationsOrContext: string;
+}
+
+export interface SafeguardingReviewRecord {
+  id: string;
+  caseId: string;
+  studentId: string;
+  studentName: string;
+  concernsSummary: string;
+  uncertaintiesAndLimitations: string;
+  chronology: SafeguardingChronologyEntry[];
+  decision: SafeguardingDecisionStatus;
+  referralRecommended: boolean;
+  referralDraftText: string;
+  externalAuthorityRef: string | null;
+  reviewedByUserId: string;
+  reviewedByName: string;
+  approvedByUserId: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AuditDocumentType =
+  | 'student_activity_report'
+  | 'scheduled_vs_observed_report'
+  | 'wellbeing_warning_report'
+  | 'parent_contact_followup_report'
+  | 'internal_case_review_summary'
+  | 'safeguarding_referral_draft';
+
+export interface AuditDocumentRecord {
+  id: string;
+  reportCode: string;
+  documentType: AuditDocumentType;
+  versionNumber: number;
+  studentId: string;
+  studentName: string;
+  caseId: string | null;
+  safeguardingReviewId: string | null;
+  isRestrictedSafeguarding: boolean;
+  title: string;
+  preparedByUserId: string;
+  preparedByName: string;
+  preparedByRole: UserRole;
+  periodStart: string;
+  periodEnd: string;
+  ruleVersionId: string;
+  ruleVersionTitle: string;
+  factualEvidenceSummary: string[];
+  dataSources: string[];
+  interventionsSummary: string[];
+  parentContactHistorySummary: string[];
+  caseStatusAtGeneration: string;
+  limitationsAndUncertainties: string[];
+  approvalStatus: 'DRAFT' | 'HUMAN_APPROVED';
+  approvedByUserId: string | null;
+  approvedByName: string | null;
+  approvedAt: string | null;
+  payloadJson: string;
+  createdAt: string;
+}
+
+export interface AuditDocumentAccessLog {
+  id: string;
+  documentId: string;
+  accessorUserId: string;
+  accessorName: string;
+  accessorRole: UserRole;
+  accessAction: 'VIEW' | 'EXPORT_PDF' | 'GENERATE';
+  accessedAt: string;
+}
+
+// --- Enhancement 07: Advanced Parent Academic Routine Builder, Weighted Learning Allocation & Teacher Evaluation ---
+
+export type EducationalSkillCategory =
+  | 'recall'
+  | 'numerical_ability'
+  | 'logical_reasoning'
+  | 'reading_comprehension'
+  | 'problem_solving'
+  | 'spatial_reasoning'
+  | 'attention_to_detail'
+  | 'time_management'
+  | 'critical_thinking';
+
+export type SkillClassificationSource =
+  | 'curated_metadata'
+  | 'subject_curriculum_map'
+  | 'teacher_tag';
+
+export interface QuestionSkillMappingRecord {
+  id: string;
+  questionId: string;
+  skillKey: EducationalSkillCategory;
+  classificationSource: SkillClassificationSource;
+  confidenceNote: string;
+  educationalDisclaimer: string;
+  createdAt: string;
+}
+
+export type RoutineMixingMethod =
+  | 'single_subject'
+  | 'mixed_session'
+  | 'separate_sessions'
+  | 'alternating'
+  | 'daily_custom';
+
+export type RoutineWorkflowStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'UNDER_REVIEW'
+  | 'APPROVED'
+  | 'ACTIVE'
+  | 'CHANGES_REQUESTED'
+  | 'REJECTED'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'ARCHIVED';
+
+export type RoutineScheduleMode = 'fixed' | 'adaptive';
+
+export type RoutineDifficultyBucket = 'simple' | 'moderate' | 'difficult';
+
+export type RoutineExposurePreference =
+  | 'unattempted'
+  | 'previously_incorrect'
+  | 'repeated_error'
+  | 'revision_due'
+  | 'weak_areas'
+  | 'all';
+
+export interface RoutineSubjectWeight {
+  subjectId: string;
+  subjectName?: string;
+  enabled: boolean;
+  weightPercent: number;
+  topicIds: string[];
+  subtopicIds: string[];
+}
+
+export interface RoutineSkillWeight {
+  skillKey: EducationalSkillCategory;
+  skillLabel?: string;
+  enabled: boolean;
+  weightPercent: number;
+  isEducationalCategory: true;
+}
+
+export interface RoutineDifficultyDistribution {
+  simple: number;
+  moderate: number;
+  difficult: number;
+  useEmpiricalCalibration: boolean;
+}
+
+export interface RoutineDailyRuleOverride {
+  weekday: number; // 0 = Sunday .. 6 = Saturday
+  label?: string;
+  timeOfDay?: string;
+  durationMinutes?: number;
+  subjectWeights: RoutineSubjectWeight[];
+  practiceSessionCount?: number;
+  mockPaperCount?: number;
+}
+
+export interface RoutineAdaptiveBounds {
+  maxDailyShiftMinutes: number;
+  maxDifficultyShiftPercent: number;
+  maxSubjectWeightShiftPercent: number;
+  allowQuestionSubstitution: boolean;
+  notifyParentOnAdjustment: boolean;
+  requireApprovalOutsideBounds: boolean;
+}
+
+export interface RoutineReminderConfig {
+  enabled: boolean;
+  leadTimesMinutes: number[];
+  channels: {
+    inApp: boolean;
+    email: boolean;
+    whatsapp: boolean;
+  };
+}
+
+export interface AcademicRoutineConfigInput {
+  studentId: string;
+  title: string;
+  description?: string;
+  grade?: string;
+  startDate: string;
+  startTimeOfDay: string; // HH:MM
+  timezone?: string;
+  recurrenceType: 'one_time' | 'daily' | 'weekly' | 'weekdays' | 'custom';
+  weekdays?: number[];
+  endDate?: string | null;
+  totalDurationWeeks?: number | null;
+  exceptionDates?: string[];
+  mixingMethod: RoutineMixingMethod;
+  subjectWeights: RoutineSubjectWeight[];
+  skillWeights: RoutineSkillWeight[];
+  difficultyDistribution: RoutineDifficultyDistribution;
+  questionCountPerSession: number;
+  sessionDurationMinutes: number;
+  practiceRatioPercent: number; // e.g. 75% practice, 25% mock papers
+  mockFrequencyDays?: number; // e.g. every N occurrences or weekly mock
+  exposurePreference: RoutineExposurePreference;
+  scheduleMode: RoutineScheduleMode;
+  breakIntervalMinutes: number;
+  breakDurationMinutes: number;
+  dailyRuleOverrides?: RoutineDailyRuleOverride[];
+  adaptiveBounds?: RoutineAdaptiveBounds;
+  reminderConfig?: RoutineReminderConfig;
+  excludedQuestionIds?: string[];
+  changeNote?: string;
+}
+
+export interface RoutineVersionRecord {
+  id: string;
+  routineId: string;
+  versionNumber: number;
+  title: string;
+  description: string;
+  grade: string;
+  startDate: string;
+  startTimeOfDay: string;
+  timezone: string;
+  recurrenceType: TimetableRecurrenceType;
+  weekdays: number[];
+  endDate: string | null;
+  totalDurationWeeks: number | null;
+  exceptionDates: string[];
+  mixingMethod: RoutineMixingMethod;
+  subjectWeights: RoutineSubjectWeight[];
+  skillWeights: RoutineSkillWeight[];
+  difficultyDistribution: RoutineDifficultyDistribution;
+  questionCountPerSession: number;
+  sessionDurationMinutes: number;
+  practiceRatioPercent: number;
+  mockFrequencyDays: number;
+  exposurePreference: RoutineExposurePreference;
+  scheduleMode: RoutineScheduleMode;
+  breakIntervalMinutes: number;
+  breakDurationMinutes: number;
+  dailyRuleOverrides: RoutineDailyRuleOverride[];
+  adaptiveBounds: RoutineAdaptiveBounds;
+  reminderConfig: RoutineReminderConfig;
+  excludedQuestionIds: string[];
+  materialHash: string;
+  requiresReReview: boolean;
+  changeNote: string;
+  createdByUserId: string;
+  createdAt: string;
+}
+
+export interface RoutineReviewAssignment {
+  id: string;
+  routineId: string;
+  routineVersionId: string;
+  reviewerUserId: string;
+  reviewerName: string;
+  reviewerRole: 'teacher' | 'admin';
+  subjectIds: string[];
+  status: 'PENDING' | 'IN_PROGRESS' | 'APPROVED' | 'CHANGES_REQUESTED' | 'REJECTED';
+  assignedAt: string;
+  completedAt: string | null;
+}
+
+export interface RoutineTeacherEvaluation {
+  id: string;
+  routineId: string;
+  routineVersionId: string;
+  teacherUserId: string;
+  teacherName: string;
+  scopedSubjectIds: string[];
+  subjectComponentDecisions: Record<string, 'approved' | 'changes_requested' | 'comment_only'>;
+  decision: 'approved_components' | 'recommend_changes' | 'comment_only';
+  topicSuitabilityNote: string;
+  difficultySuitabilityNote: string;
+  skillBalanceNote: string;
+  evidenceComparisonNote: string;
+  generalComment: string;
+  recommendedChangesJson: string;
+  createdAt: string;
+}
+
+export interface RoutineAdminEvaluation {
+  id: string;
+  routineId: string;
+  routineVersionId: string;
+  adminUserId: string;
+  adminName: string;
+  decision: 'approved' | 'changes_requested' | 'rejected' | 'comment_only';
+  overallBalanceNote: string;
+  wellbeingReviewNote: string;
+  coordinationSummary: string;
+  createdAt: string;
+}
+
+export interface RoutineChangeRequest {
+  id: string;
+  routineId: string;
+  routineVersionId: string;
+  requestedByUserId: string;
+  requestedByName: string;
+  requestedByRole: 'teacher' | 'admin';
+  subjectId: string | null;
+  category:
+    | 'subject_weight'
+    | 'topic_selection'
+    | 'skill_focus'
+    | 'difficulty_balance'
+    | 'study_load_wellbeing'
+    | 'schedule_timing'
+    | 'other';
+  summary: string;
+  suggestedChangeJson: string;
+  status: 'OPEN' | 'ADDRESSED' | 'DISMISSED';
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+export interface RoutineApprovalHistoryEntry {
+  id: string;
+  routineId: string;
+  routineVersionId: string;
+  actorId: string;
+  actorName: string;
+  actorRole: UserRole | 'system';
+  fromStatus: RoutineWorkflowStatus | null;
+  toStatus: RoutineWorkflowStatus;
+  action: string;
+  note: string;
+  createdAt: string;
+}
+
+export interface RoutineAdaptiveAdjustment {
+  id: string;
+  routineId: string;
+  routineVersionId: string;
+  triggeredAt: string;
+  reasonSummary: string;
+  adjustmentType:
+    | 'subject_weight_shift'
+    | 'difficulty_shift'
+    | 'skill_emphasis'
+    | 'question_substitution'
+    | 'duration_trim';
+  withinParentBounds: boolean;
+  status: 'APPLIED' | 'PENDING_PARENT_APPROVAL' | 'APPROVED' | 'REJECTED';
+  proposedChangesJson: string;
+  constraintsPreservedNote: string;
+  parentApprovedByUserId: string | null;
+  resolvedAt: string | null;
+}
+
+export interface AcademicRoutineRecord {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentGrade: string;
+  guardianUserId: string;
+  guardianName: string;
+  title: string;
+  description: string;
+  workflowStatus: RoutineWorkflowStatus;
+  scheduleMode: RoutineScheduleMode;
+  currentVersionNumber: number;
+  activeVersionNumber: number | null;
+  linkedTimetableId: string | null;
+  requiresReReview: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalibratedDifficultyResolution {
+  questionId: string;
+  authorTier: RoutineDifficultyBucket;
+  empiricalTier: RoutineDifficultyBucket | null;
+  effectiveTier: RoutineDifficultyBucket;
+  calibrationSource: 'empirical_reliable' | 'author_metadata';
+  validAttempts: number;
+  correctRate: number | null;
+  discrepancyNote: string | null;
+}
+
+export interface WeightedAllocationPlan {
+  questionCount: number;
+  subjectTargets: Record<string, number>;
+  skillTargets: Record<string, number>;
+  difficultyTargets: Record<RoutineDifficultyBucket, number>;
+}
+
+export interface RoutineQuestionSelectionResult {
+  requestedCount: number;
+  selectedCount: number;
+  selectedQuestions: QuizItem[];
+  allocatedBySubject: Record<string, number>;
+  allocatedBySkill: Record<string, number>;
+  allocatedByDifficulty: Record<RoutineDifficultyBucket, number>;
+  calibratedResolutions: CalibratedDifficultyResolution[];
+  shortages: {
+    dimension: 'overall' | 'subject' | 'skill' | 'difficulty' | 'exposure';
+    key: string;
+    label: string;
+    requestedCount: number;
+    availableCount: number;
+    shortfall: number;
+    explanation: string;
+  }[];
+  unmetTargets: string[];
+  substitutionNotes: string[];
+}
+
+export interface PlannedRoutineSlot {
+  occurrenceIndex: number;
+  localDate: string;
+  timeOfDay: string;
+  startUtc: string;
+  endUtc: string;
+  durationMinutes: number;
+  activityType: LearningActivityType;
+  title: string;
+  subjectIds: string[];
+  subjectWeightsForSlot: Record<string, number>;
+  questionIds: string[];
+  breakNote: string | null;
+}
+
+export interface QuestionStats {
+  questionId: string;
+  subjectId: string;
+  totalEvents: number;
+  validAttempts: number;
+  skippedCount: number;
+  timedOutCount: number;
+  uniqueStudents: number;
+  correctAttempts: number;
+  incorrectAttempts: number;
+  correctRate: number;
+  incorrectRate: number;
+  firstAttemptTotal: number;
+  firstAttemptCorrect: number;
+  repeatAttemptTotal: number;
+  repeatAttemptCorrect: number;
+  hintAssistedTotal: number;
+  hintAssistedCorrect: number;
+  unassistedTotal: number;
+  unassistedCorrect: number;
+  repeatedErrorStudentCount: number;
+  medianResponseMs: number;
+  p90ResponseMs: number;
+  updatedAt: string;
+}
+
+export interface StudentQuestionStat {
+  studentId: string;
+  questionId: string;
+  subjectId: string;
+  validAttempts: number;
+  correctAttempts: number;
+  incorrectAttempts: number;
+  lastAttemptAt: string;
+}
+
+export interface ScheduleConflictItem {
+  conflictingSessionId: string;
+  conflictingTitle: string;
+  conflictingStartUtc: string;
+  conflictingEndUtc: string;
+  candidateStartUtc: string;
+  candidateEndUtc: string;
+  reason: string;
+}
+
+export interface RoutineValidationReport {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  subjectWeightTotal: number;
+  skillWeightTotal: number;
+  difficultyTotal: number;
+  allocationPlan: WeightedAllocationPlan;
+  questionPreview: RoutineQuestionSelectionResult;
+  plannedSlots: PlannedRoutineSlot[];
+  scheduleConflicts: ScheduleConflictItem[];
+  wellbeingCheck: PreScheduleWellbeingValidationResult | null;
+}
+
+export interface RoutinePerformanceSummary {
+  routineId: string;
+  routineVersionNumber: number;
+  generatedAt: string;
+  adherenceSummary: {
+    plannedSessionsCount: number;
+    deliveredSessionsCount: number;
+    completedSessionsCount: number;
+    missedSessionsCount: number;
+    upcomingSessionsCount: number;
+    completionRatePercent: number;
+    plannedMinutesTotal: number;
+    observedActiveMinutesTotal: number;
+  };
+  subjectComparison: {
+    subjectId: string;
+    subjectName: string;
+    plannedWeightPercent: number;
+    actualDeliveredPercent: number;
+    questionsAttempted: number;
+    correctCount: number;
+    accuracyPercent: number | null;
+    variancePercent: number;
+  }[];
+  skillComparison: {
+    skillKey: EducationalSkillCategory;
+    skillLabel: string;
+    plannedWeightPercent: number;
+    actualDeliveredPercent: number;
+    questionsAttempted: number;
+    accuracyPercent: number | null;
+    educationalNote: string;
+  }[];
+  difficultyComparison: {
+    tier: RoutineDifficultyBucket;
+    plannedPercent: number;
+    actualDeliveredPercent: number;
+    questionsAttempted: number;
+    accuracyPercent: number | null;
+  }[];
+  activityMixComparison: {
+    plannedPracticePercent: number;
+    actualPracticePercent: number;
+    plannedMockPercent: number;
+    actualMockPercent: number;
+  };
+  repeatedErrorsCount: number;
+  shortageAndMissedExplanations: string[];
+  wellbeingComplianceNote: string;
+  scopeLimitationsNote: string;
+}
+
+export interface AcademicRoutineDetail {
+  routine: AcademicRoutineRecord;
+  currentVersion: RoutineVersionRecord;
+  versions: RoutineVersionRecord[];
+  reviewAssignments: RoutineReviewAssignment[];
+  teacherEvaluations: RoutineTeacherEvaluation[];
+  adminEvaluations: RoutineAdminEvaluation[];
+  changeRequests: RoutineChangeRequest[];
+  approvalHistory: RoutineApprovalHistoryEntry[];
+  adaptiveAdjustments: RoutineAdaptiveAdjustment[];
+  latestPerformanceSummary: RoutinePerformanceSummary | null;
+  studentContext: {
+    studentId: string;
+    studentName: string;
+    recentOverallAccuracyPercent: number | null;
+    openInterventionCount: number;
+    subjectMetrics: {
+      subjectId: string;
+      subjectName: string;
+      attempts: number;
+      accuracyPercent: number | null;
+      repeatedErrorCount: number;
+    }[];
+  };
+}
+
+// --- Enhancement 08: Gamified Learning Roadmaps, Progressive Levels, Interactive Missions & Adaptive Challenges ---
+
+export type RoadmapStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED';
+
+export type RoadmapLevelStatus = 'LOCKED' | 'AVAILABLE' | 'ACTIVE' | 'COMPLETED';
+
+export type RoadmapMissionType =
+  | 'standard'
+  | 'topic_practice'
+  | 'mixed_topic'
+  | 'puzzle'
+  | 'timed_challenge'
+  | 'revision'
+  | 'mastery_checkpoint'
+  | 'remedial'
+  | 'final_stage_challenge';
+
+export type RoadmapRewardType =
+  | 'xp'
+  | 'stars'
+  | 'badge'
+  | 'coins'
+  | 'avatar_cosmetic'
+  | 'stage_trophy'
+  | 'mastery_achievement';
+
+export interface RoadmapGrowthFormula {
+  baseQuestionCount: number;
+  incrementPerLevel: number;
+  maxQuestionCount: number;
+  maxQuestionsPerMission: number;
+  maxSessionDurationMinutes: number;
+}
+
+export interface RoadmapDifficultyWeights {
+  Simple: number;
+  Moderate: number;
+  Challenging: number;
+  Master: number;
+}
+
+export interface RoadmapStage {
+  id: string;
+  roadmapId: string;
+  versionNumber: number;
+  sortOrder: number;
+  title: string;
+  description: string;
+  themeColor: string;
+  milestoneRewardBadgeId: string | null;
+  createdAt: string;
+}
+
+export interface RoadmapLevel {
+  id: string;
+  roadmapId: string;
+  versionNumber: number;
+  stageId: string;
+  sequenceOrder: number;
+  title: string;
+  description: string;
+  academicObjectives: string[];
+  subjectIds: string[];
+  topicIds: string[];
+  subtopicIds: string[];
+  targetQuestionCount: number;
+  maxQuestionCount: number;
+  difficultyDistribution: RoadmapDifficultyWeights;
+  minMasteryAccuracyPercent: number;
+  requiredMissionsCount: number;
+  hasCheckpoint: boolean;
+  specialUnlockNote: string | null;
+  xpReward: number;
+  starsReward: number;
+  coinsReward: number;
+  unlockCosmeticId: string | null;
+  prerequisiteLevelIds: string[];
+}
+
+export interface RoadmapMission {
+  id: string;
+  roadmapId: string;
+  versionNumber: number;
+  levelId: string;
+  sortOrder: number;
+  title: string;
+  description: string;
+  missionType: RoadmapMissionType;
+  subjectIds: string[];
+  topicIds: string[];
+  subtopicIds: string[];
+  questionCount: number;
+  difficultyDistribution: RoadmapDifficultyWeights;
+  timeLimitSeconds: number | null;
+  isRequired: boolean;
+  isRemedial: boolean;
+  minPassAccuracyPercent: number;
+  xpReward: number;
+  starsReward: number;
+  coinsReward: number;
+  allowRetry: boolean;
+  puzzleHintMode: boolean;
+  maxAttemptsPerDay: number;
+}
+
+export interface RewardDefinition {
+  id: string;
+  code: string;
+  rewardType: RoadmapRewardType;
+  title: string;
+  description: string;
+  iconKey: string;
+  cosmeticPreview: {
+    slot?: 'avatar_frame' | 'companion' | 'crest';
+    accentHex?: string;
+    imageUrl?: string;
+  };
+  milestoneRuleText: string;
+  active: boolean;
+}
+
+export interface GameRoadmapRecord {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  grade: string;
+  scopeType: 'subject' | 'mixed';
+  subjectIds: string[];
+  themeKey: string;
+  bannerImageUrl: string | null;
+  status: RoadmapStatus;
+  currentVersion: number;
+  growthFormula: RoadmapGrowthFormula;
+  wellbeingMaxSessionMinutes: number;
+  creatorUserId: string;
+  creatorName: string;
+  creatorRole: UserRole;
+  approvedByUserId: string | null;
+  approvedAt: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoadmapAvailabilityIssue {
+  levelId: string;
+  levelTitle: string;
+  missionId?: string;
+  missionTitle?: string;
+  requestedCount: number;
+  availableCount: number;
+  message: string;
+}
+
+export interface StudentLevelProgressRecord {
+  id: string;
+  studentId: string;
+  roadmapId: string;
+  levelId: string;
+  status: RoadmapLevelStatus;
+  bestAccuracyPercent: number;
+  missionsCompletedCount: number;
+  checkpointPassed: boolean;
+  objectivesCovered: string[];
+  unlockedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface MissionAttemptRecord {
+  id: string;
+  studentId: string;
+  roadmapId: string;
+  levelId: string;
+  missionId: string;
+  questionSnapshotIds: string[];
+  startedAt: string;
+  completedAt: string | null;
+  durationSeconds: number;
+  observedActiveSeconds: number;
+  totalQuestions: number;
+  correctCount: number;
+  accuracyPercent: number | null;
+  masteryPassed: boolean;
+  rewardGranted: boolean;
+  idempotencyKey: string;
+}
+
+export interface RewardTransactionRecord {
+  id: string;
+  studentId: string;
+  roadmapId: string | null;
+  levelId: string | null;
+  missionAttemptId: string | null;
+  rewardType: RoadmapRewardType;
+  rewardDefId: string | null;
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+  createdAt: string;
+}
+
+export interface StudentUnlockedRewardRecord {
+  id: string;
+  studentId: string;
+  rewardDefId: string;
+  reward: RewardDefinition;
+  equipped: boolean;
+  unlockedAt: string;
+}
+
+export interface MasteryCheckpointResultRecord {
+  id: string;
+  studentId: string;
+  roadmapId: string;
+  levelId: string;
+  missionAttemptId: string;
+  accuracyPercent: number;
+  passed: boolean;
+  weakTopicIds: string[];
+  remediationRecommended: boolean;
+  feedbackNote: string;
+  createdAt: string;
+}
+
+export interface GameRoadmapDetail {
+  roadmap: GameRoadmapRecord;
+  stages: RoadmapStage[];
+  levels: RoadmapLevel[];
+  missions: RoadmapMission[];
+  availabilityIssues: RoadmapAvailabilityIssue[];
+  versions: {
+    versionNumber: number;
+    title: string;
+    changeNote: string;
+    createdAt: string;
+  }[];
+  studentProgress?: {
+    enrolled: boolean;
+    currentLevelId: string | null;
+    levelProgress: StudentLevelProgressRecord[];
+    recentAttempts: MissionAttemptRecord[];
+    adaptiveRecommendations: {
+      levelId: string;
+      weakTopicIds: string[];
+      weakTopicNames: string[];
+      suggestedMissionId: string | null;
+      explanation: string;
+    }[];
+  };
+}
+
+export interface StudentGamificationDashboard {
+  studentId: string;
+  studentName: string;
+  totalXp: number;
+  explorerRank: number;
+  xpIntoCurrentRank: number;
+  xpNeededForNextRank: number;
+  totalStars: number;
+  totalCoins: number;
+  streakDays: number;
+  unlockedRewards: StudentUnlockedRewardRecord[];
+  allRewardDefinitions: RewardDefinition[];
+  recentTransactions: RewardTransactionRecord[];
+  roadmaps: GameRoadmapDetail[];
+  wellbeingStatus: {
+    dailyScheduledMinutes: number;
+    dailyObservedActiveMinutes: number;
+    dailyMaxMinutes: number;
+    recommendedBreakMinutes: number;
+    breakIntervalMinutes: number;
+    shouldTakeBreakSoon: boolean;
+    dailyLimitReached: boolean;
+    supportiveMessage: string;
+  };
+}
+
+export interface RoadmapMissionCompletionResult {
+  attempt: MissionAttemptRecord;
+  checkpointResult: MasteryCheckpointResultRecord | null;
+  questionOutcomes: {
+    questionId: string;
+    isCorrect: boolean;
+    correctIndex: number;
+    selectedIndex: number | null;
+    explanation: string;
+    memoryTrickTitle: string;
+    memoryTrickBody: string;
+  }[];
+  levelEvaluation: {
+    levelId: string;
+    previousStatus: RoadmapLevelStatus;
+    newStatus: RoadmapLevelStatus;
+    completedJustNow: boolean;
+    encouragementMessage: string;
+    unmetCriteria: string[];
+    unlockedNextLevels: { levelId: string; title: string }[];
+  };
+  rewardsGranted: RewardTransactionRecord[];
+  unlockedCosmetics: RewardDefinition[];
+  remediationSuggestion: {
+    triggered: boolean;
+    weakTopicIds: string[];
+    explanation: string;
+    remedialMissionId: string | null;
+  } | null;
+}
+
+export interface RoadmapProgressReport {
+  studentId: string;
+  studentName: string;
+  roadmapId: string;
+  roadmapName: string;
+  completedLevelsCount: number;
+  totalLevelsCount: number;
+  currentLevelTitle: string | null;
+  overallAccuracyPercent: number | null;
+  totalMissionAttempts: number;
+  observedActiveMinutes: number;
+  skillsPracticed: { skillKey: EducationalSkillCategory; skillLabel: string; questionCount: number }[];
+  repeatedErrorTopics: { topicId: string; topicName: string; errorCount: number }[];
+  checkpointHistory: MasteryCheckpointResultRecord[];
+  adaptiveExplanations: string[];
+  suggestedNextActivities: string[];
+}
+
+
+
 

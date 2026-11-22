@@ -4,9 +4,12 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
+  Coffee,
   HelpCircle,
   Layers,
+  PauseCircle,
   Play,
+  PlayCircle,
   Send,
   Shuffle,
   SkipForward,
@@ -41,6 +44,7 @@ import { MascotAvatar } from './BrandVisuals';
 import { MnemonicFlashcardLab } from './MnemonicFlashcardLab';
 import { StudentKnowledgeHub } from './StudentKnowledgeHub';
 import { StudyBuddySidebar } from './StudyBuddySidebar';
+import { useStudyActivityTracker } from '../lib/useStudyActivityTracker';
 
 export interface PracticeInitialFocus {
   subjectId?: string;
@@ -172,6 +176,27 @@ export function PracticeArena({
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const isAdaptiveQuizActive =
+    arenaMode === 'quiz' &&
+    !activePracticeSession &&
+    !spReviewResult &&
+    !roundResult &&
+    !loading &&
+    quizzes.length > 0;
+  const trackerSessionKey = activePracticeSession
+    ? `sp-${activePracticeSession.attempt.id}`
+    : isAdaptiveQuizActive
+    ? practiceSessionId
+    : null;
+  const activityTracker = useStudyActivityTracker({
+    enabled: Boolean(trackerSessionKey),
+    sessionKey: trackerSessionKey,
+    contextMode: activeScheduledSessionId ? 'scheduled_session' : 'practice',
+    assessmentId: activePracticeSession?.assessment.id ?? null,
+    scheduledSessionId: activeScheduledSessionId ?? null,
+    subjectId: subjectId !== 'All' ? subjectId : null,
+  });
 
   const loadAssignedPracticeSessions = async () => {
     try {
@@ -432,8 +457,20 @@ export function PracticeArena({
 
   const currentQuiz = quizzes[currentIndex];
 
+  useEffect(() => {
+    const activeQ = activePracticeSession
+      ? activePracticeSession.questions[spIdx]
+      : isAdaptiveQuizActive
+      ? currentQuiz
+      : null;
+    if (activeQ) {
+      activityTracker.trackInteraction('question_viewed', activeQ.id);
+    }
+  }, [activePracticeSession?.attempt.id, spIdx, isAdaptiveQuizActive, currentQuiz?.id]);
+
   const handleSelectOption = (idx: number) => {
     if (selectedOption !== null || !currentQuiz) return;
+    activityTracker.trackInteraction('answer_selected', currentQuiz.id);
     setSelectedOption(idx);
     setShowStudyTrick(true);
     const isCorrect = idx === currentQuiz.correctIndex;
@@ -780,6 +817,64 @@ export function PracticeArena({
         </div>
       )}
 
+      {activityTracker.liveBreakReminder?.shouldSuggestBreak && (
+        <div
+          data-testid="live-wellbeing-break-banner"
+          className="p-3.5 rounded-2xl bg-[#FFF9EE] border border-[#F5D399] text-xs text-[#613C00] flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2">
+            <Coffee className="w-4 h-4 text-[#F96A1B] shrink-0" />
+            <span>{activityTracker.liveBreakReminder.message}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={activityTracker.togglePauseBreak}
+              className="px-3 py-1 font-bold text-white bg-[#158EE3] rounded-xl inline-flex items-center gap-1"
+            >
+              {activityTracker.isPaused ? (
+                <>
+                  <PlayCircle className="w-3.5 h-3.5" /> Resume Practice
+                </>
+              ) : (
+                <>
+                  <PauseCircle className="w-3.5 h-3.5" /> Take {activityTracker.liveBreakReminder.recommendedBreakMinutes}m Break
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={activityTracker.dismissBreakReminder}
+              className="px-2.5 py-1 font-semibold text-[#7C4D00] hover:underline"
+            >
+              Continue for now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activityTracker.isPaused && (
+        <div
+          data-testid="study-break-paused-card"
+          className="p-5 rounded-3xl bg-[#EEF9EF] border border-[#B7E1BA] text-xs text-[#1E6323] flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2.5">
+            <Coffee className="w-5 h-5 text-[#2E7D32] shrink-0" />
+            <div>
+              <div className="font-bold text-sm">Healthy Study Break Paused</div>
+              <div>Stretch, drink some water, and resume whenever you feel ready!</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={activityTracker.togglePauseBreak}
+            className="px-4 py-2 font-bold text-white bg-[#2E7D32] hover:bg-[#236227] rounded-xl inline-flex items-center gap-1.5"
+          >
+            <PlayCircle className="w-4 h-4" /> Resume Practice
+          </button>
+        </div>
+      )}
+
       {arenaMode === 'knowledge' ? (
         <StudentKnowledgeHub
           user={user}
@@ -954,6 +1049,7 @@ export function PracticeArena({
                           key={idx}
                           type="button"
                           onClick={() => {
+                            activityTracker.trackInteraction('answer_selected', sq.id);
                             const nextOpts = { ...spOptionAnswers, [key]: idx };
                             setSpOptionAnswers(nextOpts);
                             savePracticeDraftProgress(nextOpts, spTextAnswers);
@@ -1000,9 +1096,12 @@ export function PracticeArena({
                 {activePracticeSession.assessment.showHints && sq.hint && (
                   <button
                     type="button"
-                    onClick={() =>
-                      setSpHintShown((prev) => ({ ...prev, [key]: !prev[key] }))
-                    }
+                    onClick={() => {
+                      if (!spHintShown[key]) {
+                        activityTracker.trackInteraction('hint_opened', sq.id);
+                      }
+                      setSpHintShown((prev) => ({ ...prev, [key]: !prev[key] }));
+                    }}
                     className="px-3 py-1.5 text-xs font-semibold text-[#7C4D00] bg-[#FFF7EB] border border-[#FDE1B2] rounded-xl inline-flex items-center gap-1.5"
                   >
                     <HelpCircle className="w-3.5 h-3.5" />
@@ -1303,9 +1402,21 @@ export function PracticeArena({
                 )}
                 <button
                   type="button"
+                  onClick={activityTracker.togglePauseBreak}
+                  data-testid="practice-take-break-btn"
+                  className="px-3 py-2 text-xs font-semibold text-[#2E7D32] bg-[#EEF9EF] border border-[#B7E1BA] rounded-xl hover:bg-[#E1F5E3] inline-flex items-center gap-1"
+                >
+                  <Coffee className="w-3.5 h-3.5" />
+                  <span>{activityTracker.isPaused ? 'Resume' : 'Break'}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (selectedOption === null) {
                       setHintUsedBeforeAnswer(true);
+                    }
+                    if (!showStudyTrick && currentQuiz) {
+                      activityTracker.trackInteraction('hint_opened', currentQuiz.id);
                     }
                     setShowStudyTrick((s) => !s);
                   }}

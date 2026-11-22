@@ -271,6 +271,21 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export function sanitizeRenderableUrl(rawUrl?: string | null): string | null {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return trimmed;
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
 export function buildPasswordRecoveryEmailHtml(params: {
   recipientName: string;
   purposeTitle: string;
@@ -430,7 +445,7 @@ export function buildParentReportEmailHtml(params: {
         <strong>Encouragement Tip:</strong> ${escapeHtml(report.encouragementNote)}
       </div>
       <p style="margin:16px 0;">
-        <a href="${escapeHtml(fullUrl)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#158EE3;color:#FFFFFF;text-decoration:none;font-weight:700;">
+        <a href="${escapeHtml(sanitizeRenderableUrl(fullUrl) || '/?tab=progress')}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#158EE3;color:#FFFFFF;text-decoration:none;font-weight:700;">
           Sign in to View Question-by-Question Teaching Guide →
         </a>
       </p>
@@ -533,7 +548,7 @@ export function buildSessionReminderEmailHtml(params: {
         <tr><td><strong>Status at Dispatch</strong></td><td align="right">${escapeHtml(params.timeRemainingText)}</td></tr>
       </table>
       <p style="margin:16px 0;">
-        <a href="${escapeHtml(params.activityPath)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#158EE3;color:#FFFFFF;text-decoration:none;font-weight:700;">
+        <a href="${escapeHtml(sanitizeRenderableUrl(params.activityPath) || '/')}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#158EE3;color:#FFFFFF;text-decoration:none;font-weight:700;">
           Open Scheduled Activity →
         </a>
       </p>
@@ -600,8 +615,9 @@ export function buildAccessibleReportHtmlDocument(report: ParentAssessmentReport
           : item.correctnessStatus === 'unanswered'
           ? 'Unanswered'
           : 'Needs Review (Incorrect)';
-      const imgBlock = item.imageUrl
-        ? `<p><img src="${escapeHtml(item.imageUrl)}" alt="Diagram for question ${idx + 1}" style="max-width:360px;border:1px solid #DCEBFA;border-radius:8px;" /></p>`
+      const safeImgUrl = sanitizeRenderableUrl(item.imageUrl);
+      const imgBlock = safeImgUrl
+        ? `<p><img src="${escapeHtml(safeImgUrl)}" alt="Diagram for question ${idx + 1}" style="max-width:360px;border:1px solid #DCEBFA;border-radius:8px;" /></p>`
         : '';
       const guidanceHtml =
         item.correctnessStatus === 'correct'
@@ -663,5 +679,31 @@ export function buildAccessibleReportHtmlDocument(report: ParentAssessmentReport
 </html>`;
 }
 
+export function buildEmailTextAndHtml(params: {
+  heading: string;
+  subheading: string;
+  paragraphs: string[];
+  footerNote?: string;
+  accentColor?: string;
+}): { htmlBody: string; textBody: string } {
+  const safeParagraphs = (params.paragraphs || []).map((p) => `<p style="margin:0 0 12px 0;">${escapeHtml(p)}</p>`).join('\n');
+  const footerHtml = params.footerNote
+    ? `<div style="margin-top:14px;padding:12px 14px;border-radius:10px;background:#F3F9FF;border:1px solid #D5E8FA;font-size:12px;color:#476481;">${escapeHtml(params.footerNote)}</div>`
+    : '';
+  const htmlBody = renderMan5heEmailShell({
+    title: escapeHtml(params.heading),
+    subtitle: escapeHtml(params.subheading),
+    accentColor: params.accentColor || '#158EE3',
+    bodyHtml: `${safeParagraphs}${footerHtml}`,
+  });
 
+  const textBody = [
+    params.heading,
+    params.subheading,
+    '',
+    ...(params.paragraphs || []),
+    ...(params.footerNote ? ['', params.footerNote] : []),
+  ].join('\n');
 
+  return { htmlBody, textBody };
+}

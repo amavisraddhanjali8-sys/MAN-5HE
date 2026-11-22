@@ -43,6 +43,9 @@ import { AcademicService, HttpError } from './src/server/academicService.ts';
 import { KnowledgeService } from './src/server/knowledgeService.ts';
 import { AssessmentService } from './src/server/assessmentService.ts';
 import { ParentIntelligenceService } from './src/server/parentIntelligenceService.ts';
+import { WellbeingService } from './src/server/wellbeingService.ts';
+import { AcademicRoutineService } from './src/server/routineService.ts';
+import { GamifiedRoadmapService } from './src/server/roadmapService.ts';
 import {
   IdentitySecurityService,
   type DispatchedOtpEvent,
@@ -77,6 +80,9 @@ const service = new AcademicService(database);
 const knowledgeService = new KnowledgeService(service);
 const assessmentService = new AssessmentService(database, service);
 const parentIntelligenceService = new ParentIntelligenceService(database, service);
+const wellbeingService = new WellbeingService(service);
+const routineService = new AcademicRoutineService(service, parentIntelligenceService, wellbeingService);
+const roadmapService = new GamifiedRoadmapService(service, parentIntelligenceService, wellbeingService);
 assessmentService.setOnAttemptCompletedHook((attemptId, stage) => {
   void parentIntelligenceService.generateReportForAssessmentAttempt(attemptId, {
     sendCompletionNoticeIfPending: stage === 'submitted',
@@ -2896,7 +2902,29 @@ async function startServer() {
         exceptionDates: Array.isArray(req.body?.exceptionDates) ? req.body.exceptionDates : [],
         skipConflicts: Boolean(req.body?.skipConflicts),
       });
-      res.status(201).json(applied);
+      let wellbeingRecord = null;
+      if (applied.sessions.length > 0) {
+        const validation = wellbeingService.validatePreSchedule(authUser, {
+          studentId: applied.timetable.studentId,
+          proposedSlots: applied.sessions.map((s) => ({
+            localDate: s.scheduledStartUtc.slice(0, 10),
+            startUtc: s.scheduledStartUtc,
+            endUtc: s.scheduledEndUtc,
+            durationMinutes: s.durationMinutes,
+            title: s.title,
+          })),
+        });
+        if (validation.severity !== 'nominal') {
+          wellbeingRecord = wellbeingService.recordPreScheduleValidationDecision(authUser, {
+            studentId: applied.timetable.studentId,
+            validation,
+            decision: req.body?.wellbeingDecision || 'proceeded_with_acknowledgement',
+            decisionNotes: req.body?.wellbeingDecisionNotes,
+            timetableId: applied.timetable.id,
+          });
+        }
+      }
+      res.status(201).json({ ...applied, wellbeingRecord });
     } catch (err) {
       handleServiceError(res, err);
     }
@@ -2919,7 +2947,22 @@ async function startServer() {
   app.post('/api/timetables/preview', requireAuth, (req, res) => {
     try {
       const { authUser } = req as AuthedRequest;
-      res.json(parentIntelligenceService.previewCustomTimetable(authUser, req.body || {}));
+      const preview = parentIntelligenceService.previewCustomTimetable(authUser, req.body || {});
+      const wellbeing =
+        req.body?.studentId && Array.isArray(preview.occurrences)
+          ? wellbeingService.validatePreSchedule(authUser, {
+              studentId: String(req.body.studentId),
+              proposedSlots: preview.occurrences.map((o) => ({
+                localDate: o.localDate,
+                startUtc: o.startUtc,
+                endUtc: o.endUtc,
+                durationMinutes: Number(req.body.durationMinutes || 20),
+                title: String(req.body.title || ''),
+              })),
+              subjectIds: req.body?.filterCriteria?.subjectIds,
+            })
+          : null;
+      res.json({ ...preview, wellbeing });
     } catch (err) {
       handleServiceError(res, err);
     }
@@ -2929,7 +2972,46 @@ async function startServer() {
     try {
       const { authUser } = req as AuthedRequest;
       const created = parentIntelligenceService.createCustomTimetable(authUser, req.body || {});
-      res.status(201).json(created);
+      let wellbeingRecord = null;
+      if (created.sessions.length > 0) {
+        const validation = wellbeingService.validatePreSchedule(authUser, {
+          studentId: created.timetable.studentId,
+          proposedSlots: created.sessions.map((s) => ({
+            localDate: s.scheduledStartUtc.slice(0, 10),
+            startUtc: s.scheduledStartUtc,
+            endUtc: s.scheduledEndUtc,
+            durationMinutes: s.durationMinutes,
+            title: s.title,
+          })),
+          subjectIds: req.body?.filterCriteria?.subjectIds,
+        });
+        if (validation.severity !== 'nominal') {
+          wellbeingRecord = wellbeingService.recordPreScheduleValidationDecision(authUser, {
+            studentId: created.timetable.studentId,
+            validation,
+            decision: req.body?.wellbeingDecision || 'proceeded_with_acknowledgement',
+            decisionNotes: req.body?.wellbeingDecisionNotes,
+            subjectIds: req.body?.filterCriteria?.subjectIds,
+            timetableId: created.timetable.id,
+          });
+        }
+      }
+      res.status(201).json({ ...created, wellbeingRecord });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/timetables/:id/status', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const action = String(req.body?.action || 'pause') as 'pause' | 'resume' | 'cancel';
+      const result = parentIntelligenceService.updateTimetableStatus(
+        authUser,
+        String(req.params.id),
+        action
+      );
+      res.json(result);
     } catch (err) {
       handleServiceError(res, err);
     }
@@ -3006,6 +3088,667 @@ async function startServer() {
   app.post('/api/scheduler/run-sweep', requireAdmin, (_req, res) => {
     try {
       res.json(parentIntelligenceService.runSchedulerSweep());
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  // =========================================================================
+  // Enhancement 06: Child Learning Wellbeing, Study-Time Intelligence & Safeguarding
+  // =========================================================================
+
+  app.post('/api/wellbeing/activity/events', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const events = Array.isArray(req.body?.events) ? req.body.events : req.body ? [req.body] : [];
+      res.json(wellbeingService.ingestActivityEvents(authUser, events));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/wellbeing/students/:studentId/activity', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const days = Number(req.query.days || 7);
+      res.json(wellbeingService.getStudentStudyTimeAnalytics(authUser, String(req.params.studentId), days));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/wellbeing/rules', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({ ruleSets: wellbeingService.listWellbeingRuleSets(authUser) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/rules', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const created = wellbeingService.createOrProposeRule(authUser, req.body || {});
+      res.status(201).json(created);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/rules/versions/:versionId/approve', requireAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        version: wellbeingService.approveWellbeingRuleVersion(authUser, String(req.params.versionId)),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/schedule/validate', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(wellbeingService.validatePreSchedule(authUser, req.body || {}));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/schedule/decision', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json(wellbeingService.recordPreScheduleValidationDecision(authUser, req.body || {}));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/wellbeing/students/:studentId/warnings', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        warnings: wellbeingService.listStudentWarnings(authUser, String(req.params.studentId)),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/warnings/:warningId/acknowledge', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        warning: wellbeingService.acknowledgeWarningDecision(
+          authUser,
+          String(req.params.warningId),
+          req.body?.decision || 'adjusted',
+          req.body?.notes
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/wellbeing/cases', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        cases: wellbeingService.listWellbeingCases(authUser, {
+          status: req.query.status ? String(req.query.status) : undefined,
+          priority: req.query.priority ? String(req.query.priority) : undefined,
+          studentId: req.query.studentId ? String(req.query.studentId) : undefined,
+        }),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/wellbeing/cases/:caseId', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(wellbeingService.getWellbeingCaseDetail(authUser, String(req.params.caseId)));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/cases/:caseId/assign', requireAdmin, (req, res) => {
+    try {
+      const admin = (req as AuthedRequest).authUser;
+      res.json({
+        caseRecord: wellbeingService.assignWellbeingCase(
+          admin,
+          String(req.params.caseId),
+          String(req.body?.assignedToUserId || ''),
+          req.body?.reason
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/cases/:caseId/transition', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        caseRecord: wellbeingService.transitionWellbeingCase(
+          authUser,
+          String(req.params.caseId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/cases/:caseId/contacts', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        contact: wellbeingService.createParentContactRecord(
+          authUser,
+          String(req.params.caseId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/wellbeing/contacts/:noteId', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        contact: wellbeingService.updateDraftParentContactRecord(
+          authUser,
+          String(req.params.noteId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/contacts/:noteId/finalize', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        contact: wellbeingService.finalizeParentContactRecord(authUser, String(req.params.noteId)),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/contacts/:noteId/amend', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        contact: wellbeingService.amendParentContactRecord(
+          authUser,
+          String(req.params.noteId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/wellbeing/cases/:caseId/followups', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        action: wellbeingService.addFollowupAction(
+          authUser,
+          String(req.params.caseId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/wellbeing/followups/:actionId', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        action: wellbeingService.updateFollowupActionStatus(
+          authUser,
+          String(req.params.actionId),
+          req.body?.status || 'COMPLETED',
+          req.body?.completionNotes
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/safeguarding/reviews', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({ reviews: wellbeingService.listSafeguardingReviews(authUser) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/safeguarding/cases/:caseId/review', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        review: wellbeingService.initiateOrUpdateSafeguardingReview(
+          authUser,
+          String(req.params.caseId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/safeguarding/reviews/:reviewId/approve', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        review: wellbeingService.approveSafeguardingReview(
+          authUser,
+          String(req.params.reviewId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/audit-documents', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
+      res.json({ documents: wellbeingService.listAuditDocuments(authUser, studentId) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/audit-documents/generate', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        document: wellbeingService.generateAuditDocument(authUser, req.body || {}),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/audit-documents/access-logs', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const docId = req.query.documentId ? String(req.query.documentId) : undefined;
+      res.json({ logs: wellbeingService.listAuditDocumentAccessLogs(authUser, docId) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/audit-documents/:docId', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({ document: wellbeingService.getAuditDocumentDetail(authUser, String(req.params.docId)) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/audit-documents/:docId/export.pdf', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const { filename, pdf } = wellbeingService.exportAuditDocumentPdf(
+        authUser,
+        String(req.params.docId)
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(pdf);
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  // --- Enhancement 07: Parent Academic Routine Builder, Weighted Learning Allocation & Teacher Evaluation ---
+  app.get('/api/routines/skills', requireAuth, (_req, res) => {
+    try {
+      res.json(routineService.getSkillTaxonomy());
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/routines/question-skills', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const qId = req.query.questionId ? String(req.query.questionId) : undefined;
+      res.json({ mappings: routineService.listQuestionSkillMappings(qId) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.put('/api/routines/question-skills/:questionId', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        mapping: routineService.updateQuestionSkillMappings(
+          authUser,
+          String(req.params.questionId),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines/preview-validation', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        validation: routineService.previewRoutineValidation(authUser, req.body || {}),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/routines', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
+      res.json({ routines: routineService.listRoutines(authUser, { studentId }) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/routines/:id', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({ detail: routineService.getRoutineDetail(authUser, String(req.params.id)) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({ detail: routineService.createRoutine(authUser, req.body || {}) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.put('/api/routines/:id', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        detail: routineService.updateRoutine(authUser, String(req.params.id), req.body || {}),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines/:id/submit', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        detail: routineService.submitRoutineForReview(authUser, String(req.params.id)),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines/:id/teacher-evaluate', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        detail: routineService.submitTeacherEvaluation(
+          authUser,
+          String(req.params.id),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines/:id/admin-evaluate', requireAdmin, (req, res) => {
+    try {
+      const admin = (req as AuthedRequest).authUser;
+      res.json({
+        detail: routineService.submitAdminEvaluation(
+          admin,
+          String(req.params.id),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines/:id/activate', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(routineService.activateRoutine(authUser, String(req.params.id), req.body || {}));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.patch('/api/routines/:id/lifecycle', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        detail: routineService.transitionRoutineLifecycle(
+          authUser,
+          String(req.params.id),
+          req.body?.action || 'pause'
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/routines/:id/adaptive-evaluate', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json(routineService.evaluateAdaptiveAdjustments(authUser, String(req.params.id)));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/routines/:id/performance', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        performance: routineService.getRoutinePerformanceSummary(
+          authUser,
+          String(req.params.id)
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  // --- Enhancement 08: Gamified Learning Roadmaps, Progressive Levels, Interactive Missions & Rewards ---
+  app.get('/api/roadmaps', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({ roadmaps: roadmapService.listRoadmaps(authUser) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/roadmaps/dashboard', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
+      res.json({ dashboard: roadmapService.getStudentDashboard(authUser, studentId) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/roadmaps/reports/:studentId', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const roadmapId = req.query.roadmapId ? String(req.query.roadmapId) : undefined;
+      res.json({
+        reports: roadmapService.getRoadmapProgressReport(
+          authUser,
+          String(req.params.studentId),
+          roadmapId
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/rewards/:rewardDefId/equip', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        unlockedRewards: roadmapService.equipReward(
+          authUser,
+          String(req.params.rewardDefId)
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/schedule-mission', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json(roadmapService.scheduleMissionToTimetable(authUser, req.body || {}));
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.get('/api/roadmaps/:id', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const studentId = req.query.studentId ? String(req.query.studentId) : undefined;
+      res.json({
+        detail: roadmapService.getRoadmapDetail(authUser, String(req.params.id), studentId),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({ detail: roadmapService.createRoadmap(authUser, req.body || {}) });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/:id/stages', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        stage: roadmapService.createStage(authUser, String(req.params.id), req.body || {}),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/:id/levels', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        detail: roadmapService.upsertLevel(authUser, String(req.params.id), req.body || {}),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/levels/:levelId/missions', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.status(201).json({
+        detail: roadmapService.upsertMission(authUser, String(req.params.levelId), req.body || {}),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/:id/transition', requireTeacherOrAdmin, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        detail: roadmapService.transitionRoadmapStatus(
+          authUser,
+          String(req.params.id),
+          req.body || {}
+        ),
+      });
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/missions/:missionId/start', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      const studentId = req.body?.studentId ? String(req.body.studentId) : undefined;
+      res.status(201).json(
+        roadmapService.startMission(authUser, String(req.params.missionId), studentId)
+      );
+    } catch (err) {
+      handleServiceError(res, err);
+    }
+  });
+
+  app.post('/api/roadmaps/missions/:missionId/complete', requireAuth, (req, res) => {
+    try {
+      const { authUser } = req as AuthedRequest;
+      res.json({
+        result: roadmapService.completeMission(
+          authUser,
+          String(req.params.missionId),
+          req.body || {}
+        ),
+      });
     } catch (err) {
       handleServiceError(res, err);
     }

@@ -94,6 +94,7 @@ export interface SanitizedUser {
   role: UserRole;
   grade: string;
   delegatedPublishSubjects: string[];
+  safeguardingDesignated?: boolean;
   active: boolean;
   guardianName: string;
   guardianUserId?: string | null;
@@ -162,6 +163,8 @@ function rowToUser(row: Record<string, unknown>, assignedSubjectIds: string[] = 
       row.delegated_publish_subjects_json,
       []
     ),
+    safeguardingDesignated:
+      role === 'admin' || Number(row.safeguarding_designated ?? 0) === 1,
     active: Number(row.active ?? 1) === 1,
     guardianName: String(row.guardian_name || ''),
     guardianUserId: row.guardian_user_id ? String(row.guardian_user_id) : null,
@@ -347,6 +350,7 @@ export class AcademicService {
       role: user.role,
       grade: user.grade || 'Grade 5',
       delegatedPublishSubjects: user.delegatedPublishSubjects || [],
+      safeguardingDesignated: user.role === 'admin' || Boolean(user.safeguardingDesignated),
       active: user.active ?? true,
       guardianName: user.guardianName || '',
       guardianUserId: user.guardianUserId ?? null,
@@ -3597,11 +3601,12 @@ export class AcademicService {
     category: EmailLog['category'];
     otpCode?: string;
     htmlBody: string;
+    textBody?: string;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO email_logs (id, to_email, subject, category, otp_code, html_body, sent_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO email_logs (id, to_email, subject, category, otp_code, html_body, text_body, sent_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         `EML-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -3610,6 +3615,7 @@ export class AcademicService {
         params.category,
         params.otpCode || null,
         params.htmlBody,
+        params.textBody || null,
         new Date().toISOString()
       );
   }
@@ -3650,6 +3656,7 @@ export class AcademicService {
       category: String(r.category) as EmailLog['category'],
       otpCode: r.otp_code ? String(r.otp_code) : undefined,
       htmlBody: String(r.html_body),
+      textBody: r.text_body ? String(r.text_body) : undefined,
       sentAt: String(r.sent_at),
     }));
   }

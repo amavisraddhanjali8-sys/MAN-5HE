@@ -4,6 +4,7 @@ import {
   BookOpen,
   Calendar,
   Clock,
+  Compass,
   Flame,
   PauseCircle,
   Play,
@@ -39,7 +40,7 @@ interface StudentHomeProps {
   interventions?: StudentInterventionInstruction[];
   onStartTargetedPractice?: (intervention: StudentInterventionInstruction) => void;
   onStartScheduledSession?: (session: ScheduledSessionRecord) => void;
-  onNavigate: (view: 'practice' | 'exams' | 'parents' | 'billing') => void;
+  onNavigate: (view: 'practice' | 'quests' | 'exams' | 'parents' | 'billing') => void;
   onQuickShare: () => Promise<void>;
   onUpdateDailyGoal: (targetQuestions: number) => Promise<void>;
 }
@@ -61,6 +62,8 @@ export function StudentHome({
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSessionRecord[]>([]);
   const [canSelfEditSchedule, setCanSelfEditSchedule] = useState(false);
+  const [studentMaxDailyMinutes, setStudentMaxDailyMinutes] = useState<number | null>(null);
+  const [studentRescheduleWindowHours, setStudentRescheduleWindowHours] = useState<number | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState('');
@@ -71,7 +74,10 @@ export function StudentHome({
     try {
       const res = await api.getStudentScheduleDashboard(user.id);
       setScheduledSessions(res.sessions);
-      setCanSelfEditSchedule(res.links.some((l) => l.studentCanEditSchedule));
+      const editableLink = res.links.find((l) => l.studentCanEditSchedule);
+      setCanSelfEditSchedule(Boolean(editableLink));
+      setStudentMaxDailyMinutes(editableLink?.studentDailyMaxMinutes ?? null);
+      setStudentRescheduleWindowHours(editableLink?.studentRescheduleWindowHours ?? null);
     } catch {
       // non-blocking
     }
@@ -221,6 +227,31 @@ export function StudentHome({
           </div>
         )}
 
+        {/* Gamified Learning Quest Roadmap Launcher */}
+        <section className="rounded-3xl bg-gradient-to-r from-[#0F2942] via-[#133859] to-[#158EE3] text-white p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1 max-w-xl">
+            <div className="text-xs font-bold text-[#93D5FF] flex items-center gap-1.5">
+              <Compass className="w-4 h-4" />
+              <span>Interactive Quest Roadmaps · E08 Adventure</span>
+            </div>
+            <h2 className="text-lg sm:text-xl font-display font-extrabold">
+              Explore Progressive Levels &amp; Earn Explorer Ranks
+            </h2>
+            <p className="text-xs text-white/85">
+              Complete step-by-step study missions, unlock Scholarship Island stages, and earn educational badges at a healthy pace.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="open-quest-roadmap-btn"
+            onClick={() => onNavigate('quests')}
+            className="px-4 py-2.5 text-xs font-bold text-[#0F2942] bg-white hover:bg-[#EAF5FF] rounded-xl transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5"
+          >
+            <Compass className="w-4 h-4 text-[#158EE3]" />
+            <span>Open Quest Roadmap</span>
+          </button>
+        </section>
+
         {/* Daily Streak & Consistent Learner Gamification */}
         <DailyStreakTracker
           streakDays={user.streakDays}
@@ -255,10 +286,17 @@ export function StudentHome({
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-bold text-[#158EE3] tabular-nums">
-                {scheduledSessions.filter((s) => s.status === 'SCHEDULED' || s.status === 'IN_PROGRESS').length}{' '}
-                Upcoming
-              </span>
+              <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-[#158EE3] tabular-nums">
+                {canSelfEditSchedule && studentMaxDailyMinutes && studentRescheduleWindowHours && (
+                  <span className="text-[11px] font-medium text-[#526A84]">
+                    Self-shift limit: ±{studentRescheduleWindowHours}h · Max {studentMaxDailyMinutes}m/day
+                  </span>
+                )}
+                <span>
+                  {scheduledSessions.filter((s) => s.status === 'SCHEDULED' || s.status === 'IN_PROGRESS').length}{' '}
+                  Upcoming
+                </span>
+              </div>
             </div>
 
             {scheduleNotice && (
@@ -347,7 +385,7 @@ export function StudentHome({
                               className="px-4 py-2 text-xs font-bold text-white bg-[#158EE3] hover:bg-[#1176BE] rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0"
                             >
                               <Play className="w-3.5 h-3.5" />
-                              <span>Start Activity</span>
+                              <span>{s.status === 'IN_PROGRESS' ? 'Resume Activity' : 'Start Activity'}</span>
                             </button>
                           )}
                         </div>

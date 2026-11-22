@@ -1,4 +1,4 @@
-import type { ParentAssessmentReport } from '../lib/types.ts';
+import type { AuditDocumentRecord, ParentAssessmentReport } from '../lib/types.ts';
 
 function toPdfAscii(text: string): string {
   // PDF Type1 Helvetica supports WinAnsi/ASCII; replace non-ASCII scripts cleanly with transliterated note where needed
@@ -28,6 +28,59 @@ function wrapLine(text: string, maxChars = 88): string[] {
   }
   if (current) lines.push(current);
   return lines;
+}
+
+function renderLinesToPdfBuffer(lines: { text: string; bold?: boolean; size?: number }[]): Buffer {
+  const linesPerPage = 48;
+  const pages: (typeof lines)[] = [];
+  for (let i = 0; i < lines.length; i += linesPerPage) {
+    pages.push(lines.slice(i, i + linesPerPage));
+  }
+  if (pages.length === 0) pages.push([{ text: 'Empty report', size: 10 }]);
+
+  const objects: string[] = [];
+  const pageIds: number[] = [];
+
+  for (let p = 0; p < pages.length; p++) {
+    const contentObjId = 5 + p * 2;
+    const pageObjId = 6 + p * 2;
+    pageIds.push(pageObjId);
+
+    const streamOps: string[] = ['BT'];
+    let y = 760;
+    for (const ln of pages[p]) {
+      const font = ln.bold ? '/F2' : '/F1';
+      const sz = ln.size || 10;
+      streamOps.push(`${font} ${sz} Tf 48 ${y} Td (${toPdfAscii(ln.text)}) Tj`);
+      streamOps.push(`0 0 Td`);
+      streamOps.push(`-48 ${-y} Td`);
+      y -= sz + 4;
+    }
+    streamOps.push('ET');
+    const streamStr = streamOps.join('\n');
+    objects[contentObjId] = `${contentObjId} 0 obj\n<< /Length ${Buffer.byteLength(streamStr, 'utf8')} >>\nstream\n${streamStr}\nendstream\nendobj\n`;
+    objects[pageObjId] = `${pageObjId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjId} 0 R >>\nendobj\n`;
+  }
+
+  objects[1] = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
+  objects[2] = `2 0 obj\n<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>\nendobj\n`;
+  objects[3] = `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
+  objects[4] = `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`;
+
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [0];
+  const totalObjs = 4 + pages.length * 2;
+  for (let id = 1; id <= totalObjs; id++) {
+    offsets[id] = Buffer.byteLength(pdf, 'utf8');
+    pdf += objects[id];
+  }
+  const xrefPos = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`;
+  for (let id = 1; id <= totalObjs; id++) {
+    pdf += `${String(offsets[id]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+  return Buffer.from(pdf, 'utf8');
 }
 
 export function buildParentReportPdfBuffer(report: ParentAssessmentReport): Buffer {
@@ -82,58 +135,57 @@ export function buildParentReportPdfBuffer(report: ParentAssessmentReport): Buff
     lines.push({ text: '' });
   });
 
-  // Paginate lines (52 lines per US Letter / A4 portrait page)
-  const linesPerPage = 48;
-  const pages: typeof lines[] = [];
-  for (let i = 0; i < lines.length; i += linesPerPage) {
-    pages.push(lines.slice(i, i + linesPerPage));
-  }
-  if (pages.length === 0) pages.push([{ text: 'Empty report', size: 10 }]);
-
-  // Build PDF objects:
-  // 1: Catalog, 2: Pages, 3: Font F1 (Helvetica), 4: Font F2 (Helvetica-Bold)
-  // Then for each page p: Content object (5 + 2*p), Page object (6 + 2*p)
-  const objects: string[] = [];
-  const pageIds: number[] = [];
-
-  for (let p = 0; p < pages.length; p++) {
-    const contentObjId = 5 + p * 2;
-    const pageObjId = 6 + p * 2;
-    pageIds.push(pageObjId);
-
-    const streamOps: string[] = ['BT'];
-    let y = 760;
-    for (const ln of pages[p]) {
-      const font = ln.bold ? '/F2' : '/F1';
-      const sz = ln.size || 10;
-      streamOps.push(`${font} ${sz} Tf 48 ${y} Td (${toPdfAscii(ln.text)}) Tj`);
-      streamOps.push(`0 0 Td`);
-      streamOps.push(`-48 ${-y} Td`);
-      y -= sz + 4;
-    }
-    streamOps.push('ET');
-    const streamStr = streamOps.join('\n');
-    objects[contentObjId] = `${contentObjId} 0 obj\n<< /Length ${Buffer.byteLength(streamStr, 'utf8')} >>\nstream\n${streamStr}\nendstream\nendobj\n`;
-    objects[pageObjId] = `${pageObjId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjId} 0 R >>\nendobj\n`;
-  }
-
-  objects[1] = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
-  objects[2] = `2 0 obj\n<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>\nendobj\n`;
-  objects[3] = `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
-  objects[4] = `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`;
-
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [0];
-  const totalObjs = 4 + pages.length * 2;
-  for (let id = 1; id <= totalObjs; id++) {
-    offsets[id] = Buffer.byteLength(pdf, 'utf8');
-    pdf += objects[id];
-  }
-  const xrefPos = Buffer.byteLength(pdf, 'utf8');
-  pdf += `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`;
-  for (let id = 1; id <= totalObjs; id++) {
-    pdf += `${String(offsets[id]).padStart(10, '0')} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
-  return Buffer.from(pdf, 'utf8');
+  return renderLinesToPdfBuffer(lines);
 }
+
+export function buildAuditDocumentPdfBuffer(doc: AuditDocumentRecord): Buffer {
+  const lines: { text: string; bold?: boolean; size?: number }[] = [
+    { text: `MAN 5HE - Wellbeing & Safeguarding Audit Document (${doc.reportCode})`, bold: true, size: 13 },
+    { text: doc.title, bold: true, size: 11 },
+    {
+      text: `Type: ${doc.documentType} | Version: v${doc.versionNumber} | Restricted: ${doc.isRestrictedSafeguarding ? 'YES' : 'NO'}`,
+      size: 9,
+    },
+    {
+      text: `Student: ${doc.studentName} (${doc.studentId}) | Reporting Period: ${doc.periodStart} to ${doc.periodEnd}`,
+      size: 9,
+    },
+    {
+      text: `Prepared By: ${doc.preparedByName} (${doc.preparedByRole}) | Created: ${doc.createdAt}`,
+      size: 9,
+    },
+    {
+      text: `Policy Guideline: ${doc.ruleVersionTitle} (${doc.ruleVersionId}) | Case Status: ${doc.caseStatusAtGeneration}`,
+      size: 9,
+    },
+    {
+      text: `Approval: ${doc.approvalStatus}${doc.approvedByName ? ` by ${doc.approvedByName} at ${doc.approvedAt}` : ''}`,
+      size: 9,
+    },
+    { text: '' },
+  ];
+
+  const appendSection = (heading: string, items: string[]) => {
+    lines.push({ text: heading, bold: true, size: 10 });
+    if (items.length === 0) {
+      lines.push({ text: '  - None recorded for this period.', size: 9 });
+    } else {
+      for (const item of items) {
+        const wrapped = wrapLine(`- ${item}`, 86);
+        for (const w of wrapped) {
+          lines.push({ text: `  ${w}`, size: 9 });
+        }
+      }
+    }
+    lines.push({ text: '' });
+  };
+
+  appendSection('1. Factual Evidence & Measurements', doc.factualEvidenceSummary);
+  appendSection('2. Underlying Data Sources & Reference IDs', doc.dataSources);
+  appendSection('3. Educational Support & Interventions', doc.interventionsSummary);
+  appendSection('4. Parent Communication & Follow-Up History', doc.parentContactHistorySummary);
+  appendSection('5. Uncertainties, Technical Limitations & Non-Diagnostic Notice', doc.limitationsAndUncertainties);
+
+  return renderLinesToPdfBuffer(lines);
+}
+

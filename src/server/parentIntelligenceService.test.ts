@@ -385,13 +385,13 @@ describe('ParentIntelligenceService — Links, Automatic Reports, Teaching Guide
       (err: unknown) => err instanceof HttpError && err.status === 400
     );
 
-    // Create valid non-overlapping custom session, reschedule it, check old reminder jobs cancelled, then test sweep
+    // Create valid non-overlapping custom session on 2026-12-09 (before 2026-12-11 appliedSession)
     const custom = parentService.createCustomTimetable(parent, {
       studentId: student.id,
       title: 'Evening Non-Verbal Reasoning',
       activityType: 'topic_revision',
       timezone: 'Asia/Colombo',
-      startDate: '2026-12-15',
+      startDate: '2026-12-09',
       timeOfDay: '18:00',
       durationMinutes: 20,
       gracePeriodMinutes: 15,
@@ -401,22 +401,47 @@ describe('ParentIntelligenceService — Links, Automatic Reports, Teaching Guide
     const customSession = custom.sessions[0];
 
     // Guardian locks student self-edit -> student blocked from rescheduling (403)
-    parentService.updateGuardianLinkPermissions(parent, student.id, {
+    const guardianLink = parentService
+      .getLinkedStudents(parent)
+      .find((l) => l.studentUserId === student.id)!;
+    parentService.updateGuardianLinkPermissions(parent, guardianLink.id, {
       studentCanEditSchedule: false,
     });
     assert.throws(
       () =>
         parentService.rescheduleSession(student, customSession.id, {
-          newDate: '2026-12-15',
+          newDate: '2026-12-09',
           newTimeOfDay: '18:30',
+        }),
+      (err: unknown) => err instanceof HttpError && err.status === 403
+    );
+
+    // Guardian enables student self-edit with 2-hour window & 30-min cap -> student can shift 1h, blocked at 5h
+    parentService.updateGuardianLinkPermissions(parent, guardianLink.id, {
+      studentCanEditSchedule: true,
+      studentDailyMaxMinutes: 30,
+      studentRescheduleWindowHours: 2,
+    });
+    const studentShifted = parentService.rescheduleSession(student, customSession.id, {
+      newDate: '2026-12-09',
+      newTimeOfDay: '19:00',
+      timezone: 'Asia/Colombo',
+    });
+    assert.ok(studentShifted.scheduledStartUtc);
+    assert.throws(
+      () =>
+        parentService.rescheduleSession(student, customSession.id, {
+          newDate: '2026-12-10',
+          newTimeOfDay: '10:00',
+          timezone: 'Asia/Colombo',
         }),
       (err: unknown) => err instanceof HttpError && err.status === 403
     );
 
     // Guardian reschedules -> old PENDING reminders cancelled & new PENDING reminders created
     const moved = parentService.rescheduleSession(parent, customSession.id, {
-      newDate: '2026-12-16',
-      newTimeOfDay: '17:30',
+      newDate: '2026-12-09',
+      newTimeOfDay: '19:30',
       timezone: 'Asia/Colombo',
     });
     const cancelledJobs = wrap.db.db
@@ -428,19 +453,35 @@ describe('ParentIntelligenceService — Links, Automatic Reports, Teaching Guide
     assert.ok(cancelledJobs.c > 0);
     assert.ok(activeJobs.c > 0);
 
-    // Sweep right before start sends due reminders once (idempotent)
+    // Sweep right before start sends due reminders once (idempotent) with HTML + plain text
     const startMs = Date.parse(moved.scheduledStartUtc);
     const sweep1 = parentService.runSchedulerSweep(startMs - 5 * 60_000);
     assert.ok(sweep1.remindersSent > 0);
+    const reminderEmails = academicService.getEmailLogs(parent.email).filter((e) => e.category === 'reminder');
+    assert.ok(reminderEmails.length >= 1);
+    assert.ok(reminderEmails[0].textBody && reminderEmails[0].textBody.includes('MAN 5HE Study Reminder'));
     const sweep2 = parentService.runSchedulerSweep(startMs - 5 * 60_000);
     assert.equal(sweep2.remindersSent, 0); // deduplicated
 
-    // Launching session freezes snapshot questions & completing marks session COMPLETED
+    // Launching session freezes snapshot questions & resuming does not double-count attemptsUsed
     const launched = parentService.startScheduledSession(student, moved.id);
     assert.equal(launched.launchMode, 'practice_questions');
     assert.equal(launched.quizzes.length, 2);
+    assert.equal(launched.session.attemptsUsed, 1);
+    const resumed = parentService.startScheduledSession(student, moved.id);
+    assert.equal(resumed.session.attemptsUsed, 1);
     const completed = parentService.completeScheduledSession(student, moved.id, 'ATT-DONE-1');
     assert.equal(completed.status, 'COMPLETED');
+
+    // Completed session respecting maxAttempts=1 cannot be started again (400)
+    assert.throws(
+      () => parentService.startScheduledSession(student, moved.id),
+      (err: unknown) => err instanceof HttpError && err.status === 400
+    );
+
+    // Timetable-level pause -> resume -> cancel updates child sessions and reminders
+    const ttPaused = parentService.updateTimetableStatus(parent, custom.timetable.id, 'pause');
+    assert.equal(ttPaused.timetable.status, 'PAUSED');
 
     // Sweep after grace period marks uncompleted applied session as MISSED
     const appliedEndPlusGrace = Date.parse(appliedSession.scheduledEndUtc) + 30 * 60_000;
@@ -450,5 +491,105 @@ describe('ParentIntelligenceService — Links, Automatic Reports, Teaching Guide
       .prepare('SELECT status FROM scheduled_sessions WHERE id = ?')
       .get(appliedSession.id) as { status: string };
     assert.equal(missedCheck.status, 'MISSED');
+
+    // Corrupted/missing snapshot ID rejects cleanly rather than substituting random questions
+    wrap.db.db
+      .prepare(`UPDATE scheduled_sessions SET status = 'SCHEDULED', attempts_used = 0, question_snapshot_ids_json = ? WHERE id = ?`)
+      .run(JSON.stringify(['NONEXISTENT-Q-99999']), appliedSession.id);
+    assert.throws(
+      () => parentService.startScheduledSession(student, appliedSession.id),
+      (err: unknown) => err instanceof HttpError && err.status === 400
+    );
+  });
+
+  it('persists plain-text email alternatives, preserves exact question version snapshots, and sanitizes report exports against XSS/unsafe URLs', async () => {
+    const wrap = createTempSuite();
+    cleanups.push(wrap.cleanup);
+    const { academicService, assessmentService, parentService } = wrap;
+
+    const admin = academicService.getUserByIdentifier('admin@man5he.lk')!;
+    const mathTeacher = academicService.getUserByIdentifier('teacher.math@man5he.lk')!;
+    const student = academicService.getUserByIdentifier('sayuri@man5he.lk')!;
+    const parent = academicService.getUserByIdentifier('parent@man5he.lk')!;
+
+    // Create a question with an unsafe javascript: imageUrl and HTML payload to verify report sanitizer
+    const qDraft = assessmentService.createQuestionExtended(mathTeacher, {
+      subjectId: 'subj-math',
+      topicId: 'top-math-money',
+      subtopicId: 'sub-math-bus',
+      questionType: 'mcq',
+      questionSi: 'Original Version One Question <script>alert(1)</script>',
+      questionEn: 'Original Version One Question <script>alert(1)</script>',
+      options: ['10', '20', '30', '40'],
+      correctIndex: 1,
+      imageUrl: 'javascript:alert("xss")',
+      defaultMarks: 2,
+      approvalStatus: 'PENDING_REVIEW',
+      explanation: '20 is the exact answer in Version 1.',
+      memoryTrickTitle: 'Double Ten',
+      memoryTrickBody: 'Two tens make twenty.',
+    });
+    const approvedQ = assessmentService.transitionQuestionStatus(admin, qDraft.id, {
+      toStatus: 'ACTIVE',
+      notes: 'Approved for version check',
+    });
+    const asm = assessmentService.createAssessment(admin, {
+      kind: 'practice_session',
+      title: 'Version Preservation Check',
+      subjectIds: ['subj-math'],
+      status: 'PUBLISHED',
+      sections: [
+        {
+          title: 'Main',
+          subjectId: 'subj-math',
+          items: [{ questionId: approvedQ.id, marks: 2 }],
+        },
+      ],
+    });
+
+    const started = assessmentService.startOrResumeAssessmentAttempt(student, asm.id);
+    const snap = started.questions[0];
+
+    // Admin updates the question in the bank AFTER attempt started (version bumps to v2)
+    assessmentService.updateQuestionExtended(admin, approvedQ.id, {
+      questionSi: 'Edited Version Two Question Should Not Alter Snapshot',
+      questionEn: 'Edited Version Two Question Should Not Alter Snapshot',
+    });
+
+    // Submit unanswered -> status is 'unanswered' and preserved text reflects Version 1!
+    assessmentService.submitAssessmentAttempt(student, asm.id, {
+      attemptId: started.attempt.id,
+      idempotencyKey: 'ver-preserve-1',
+      answers: [{ snapshotId: snap.snapshotId!, questionId: qDraft.id, submittedOptionIndex: null }],
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const { reports } = parentService.listStudentReports(parent, student.id);
+    const report = reports.find((r) => r.attemptId === started.attempt.id)!;
+    assert.ok(report);
+    assert.equal(report.items[0].correctnessStatus, 'unanswered');
+    assert.ok(report.items[0].questionEn.includes('Original Version One Question'));
+    assert.equal(report.items[0].questionEn.includes('Version Two'), false);
+
+    // Verify email_logs contains both HTML and plain-text report body
+    const reportEmail = academicService
+      .getEmailLogs(parent.email)
+      .find((e) => e.category === 'progress_report' && e.subject.includes('Version Preservation Check'));
+    assert.ok(reportEmail);
+    assert.ok(reportEmail.textBody && reportEmail.textBody.includes('MAN 5HE Final Learning Report'));
+
+    // Verify HTML export escapes script tag and drops unsafe javascript: img URL
+    const htmlExport = parentService.exportReportHtml(parent, report.id);
+    assert.equal(htmlExport.html.includes('<script>alert(1)</script>'), false);
+    assert.ok(htmlExport.html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    assert.equal(htmlExport.html.includes('javascript:alert'), false);
+
+    // Unauthenticated / unrelated teacher cannot inspect student report
+    const langTeacher = academicService.getUserByIdentifier('teacher.lang@man5he.lk')!;
+    assert.throws(
+      () => parentService.getReportDetail(langTeacher, report.id),
+      (err: unknown) => err instanceof HttpError && err.status === 403
+    );
   });
 });
+

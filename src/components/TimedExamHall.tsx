@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Coffee,
   FileText,
   Lock,
   Play,
@@ -26,6 +27,7 @@ import type {
   StudentQuizView,
   StudentTrajectory,
 } from '../lib/types';
+import { useStudyActivityTracker } from '../lib/useStudyActivityTracker';
 
 export interface ScheduledExamLaunch {
   scheduledSessionId: string;
@@ -72,6 +74,15 @@ export function TimedExamHall({
   const [perQuestionDurationsMs, setPerQuestionDurationsMs] = useState<Record<string, number>>({});
   const [questionEnteredAtMs, setQuestionEnteredAtMs] = useState<number>(Date.now());
   const [submitting, setSubmitting] = useState(false);
+
+  const examActivityTracker = useStudyActivityTracker({
+    enabled: Boolean(activeSession),
+    sessionKey: activeSession ? `exam-${activeSession.sessionId}` : null,
+    contextMode: 'timed_exam',
+    assessmentId: activeSession?.mode === 'structured' ? activeSession.paperId : null,
+    scheduledSessionId: activeScheduledSessionId,
+    paperId: activeSession?.mode === 'legacy' ? activeSession.paperId : null,
+  });
 
   // Post-exam review state (Legacy)
   const [examResult, setExamResult] = useState<{
@@ -314,6 +325,14 @@ export function TimedExamHall({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [activeSession?.sessionId]);
+
+  useEffect(() => {
+    if (!activeSession) return;
+    const activeQ = activeSession.questions[currentIdx];
+    if (activeQ) {
+      examActivityTracker.trackInteraction('question_viewed', activeQ.id);
+    }
+  }, [activeSession?.sessionId, currentIdx]);
 
   const letters = ['A', 'B', 'C', 'D'];
 
@@ -687,6 +706,29 @@ export function TimedExamHall({
           </div>
         </div>
 
+        {examActivityTracker.liveBreakReminder?.shouldSuggestBreak &&
+          examActivityTracker.liveBreakReminder.timedAssessmentPolicy !==
+            'strict_no_interrupt_until_submit' && (
+            <div
+              data-testid="exam-wellbeing-break-banner"
+              className="p-3.5 rounded-2xl bg-[#FFF9EE] border border-[#F5D399] text-xs text-[#613C00] flex flex-wrap items-center justify-between gap-3"
+            >
+              <div className="flex items-center gap-2">
+                <Coffee className="w-4 h-4 text-[#F96A1B] shrink-0" />
+                <span>
+                  {examActivityTracker.liveBreakReminder.message} (Reminder only — your official exam timer stays active.)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={examActivityTracker.dismissBreakReminder}
+                className="px-3 py-1 font-semibold text-[#7C4D00] hover:underline"
+              >
+                Dismiss Notice
+              </button>
+            </div>
+          )}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-8 bg-white rounded-3xl border border-[#DCEBFA] p-6 sm:p-8 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#526A84]">
@@ -727,7 +769,10 @@ export function TimedExamHall({
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => setAnswers((prev) => ({ ...prev, [qKey]: idx }))}
+                        onClick={() => {
+                          examActivityTracker.trackInteraction('answer_selected', q.id);
+                          setAnswers((prev) => ({ ...prev, [qKey]: idx }));
+                        }}
                         className={`w-full p-3.5 rounded-2xl border-2 text-left font-medium flex items-center gap-3.5 transition-colors ${
                           chosen
                             ? 'bg-[#158EE3] border-[#1176BE] text-white'

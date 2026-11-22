@@ -67,6 +67,49 @@ import type {
   StudentTimetable,
   TimetablePreset,
   TimetableRecurrenceType,
+  AuditDocumentAccessLog,
+  AuditDocumentRecord,
+  AuditDocumentType,
+  ParentContactRecord,
+  ParentScheduleDecision,
+  PreScheduleWellbeingValidationResult,
+  SafeguardingChronologyEntry,
+  SafeguardingDecisionStatus,
+  SafeguardingReviewRecord,
+  SessionActivitySummary,
+  StudentStudyTimeAnalytics,
+  StudyActivityEventInput,
+  WellbeingCaseDetail,
+  WellbeingCasePriority,
+  WellbeingCaseRecord,
+  WellbeingCaseStatus,
+  WellbeingFollowupActionRecord,
+  WellbeingRuleSet,
+  WellbeingRuleVersion,
+  WellbeingWarningRecord,
+  AcademicRoutineConfigInput,
+  AcademicRoutineDetail,
+  AcademicRoutineRecord,
+  EducationalSkillCategory,
+  GameRoadmapDetail,
+  GameRoadmapRecord,
+  QuestionSkillMappingRecord,
+  RoadmapDifficultyWeights,
+  RoadmapGrowthFormula,
+  RoadmapLevel,
+  RoadmapMission,
+  RoadmapMissionCompletionResult,
+  RoadmapMissionType,
+  RoadmapProgressReport,
+  RoadmapStage,
+  RoadmapStatus,
+  RoutineAdaptiveAdjustment,
+  RoutineChangeRequest,
+  RoutinePerformanceSummary,
+  RoutineValidationReport,
+  SkillClassificationSource,
+  StudentGamificationDashboard,
+  StudentUnlockedRewardRecord,
 } from './types';
 import type { PracticeLevelMode, ProficiencyStreamConfig } from './practiceAdaptive';
 import type { StudentImprovementSummary } from './questionIntelligence';
@@ -83,6 +126,7 @@ export interface AuthUser {
   role: UserRole;
   grade?: string;
   delegatedPublishSubjects?: string[];
+  safeguardingDesignated?: boolean;
   active?: boolean;
   guardianName?: string;
   guardianUserId?: string | null;
@@ -1859,12 +1903,15 @@ export const api = {
       customTitle?: string;
       exceptionDates?: string[];
       skipConflicts?: boolean;
+      wellbeingDecision?: ParentScheduleDecision;
+      wellbeingDecisionNotes?: string;
     }
   ) =>
     apiRequest<{
       timetable: StudentTimetable;
       sessions: ScheduledSessionRecord[];
       skippedConflicts: number;
+      wellbeingRecord?: { warning: WellbeingWarningRecord | null; openedCase: WellbeingCaseRecord | null } | null;
     }>(`/api/timetable-presets/${encodeURIComponent(presetId)}/apply`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -1922,6 +1969,7 @@ export const api = {
         insufficient: boolean;
         warnings: string[];
       };
+      wellbeing?: PreScheduleWellbeingValidationResult | null;
     }>('/api/timetables/preview', { method: 'POST', body: JSON.stringify(body) }),
 
   createCustomTimetable: (body: {
@@ -1943,11 +1991,14 @@ export const api = {
     fixedAssessmentId?: string | null;
     fixedPaperId?: string | null;
     notes?: string;
+    wellbeingDecision?: ParentScheduleDecision;
+    wellbeingDecisionNotes?: string;
   }) =>
-    apiRequest<{ timetable: StudentTimetable; sessions: ScheduledSessionRecord[] }>(
-      '/api/timetables',
-      { method: 'POST', body: JSON.stringify(body) }
-    ),
+    apiRequest<{
+      timetable: StudentTimetable;
+      sessions: ScheduledSessionRecord[];
+      wellbeingRecord?: { warning: WellbeingWarningRecord | null; openedCase: WellbeingCaseRecord | null } | null;
+    }>('/api/timetables', { method: 'POST', body: JSON.stringify(body) }),
 
   rescheduleScheduledSession: (
     sessionId: string,
@@ -1956,6 +2007,15 @@ export const api = {
     apiRequest<{ session: ScheduledSessionRecord }>(
       `/api/scheduled-sessions/${encodeURIComponent(sessionId)}/reschedule`,
       { method: 'PATCH', body: JSON.stringify(body) }
+    ),
+
+  updateTimetableStatus: (
+    timetableId: string,
+    action: 'pause' | 'resume' | 'cancel'
+  ) =>
+    apiRequest<{ timetable: StudentTimetable; updatedSessions: number }>(
+      `/api/timetables/${encodeURIComponent(timetableId)}/status`,
+      { method: 'PATCH', body: JSON.stringify({ action }) }
     ),
 
   updateScheduledSessionStatus: (
@@ -1995,6 +2055,595 @@ export const api = {
     apiRequest<{ preferences: ReminderPreferenceRecord }>(
       `/api/reminder-preferences/${encodeURIComponent(studentId)}`,
       { method: 'PUT', body: JSON.stringify(body) }
+    ),
+
+  // --- Enhancement 06: Child Learning Wellbeing, Study-Time Intelligence & Safeguarding ---
+  ingestStudyActivityEvents: (events: StudyActivityEventInput[]) =>
+    apiRequest<{
+      acceptedCount: number;
+      deduplicatedCount: number;
+      summaries: SessionActivitySummary[];
+      liveBreakReminder: {
+        shouldSuggestBreak: boolean;
+        continuousMinutes: number;
+        recommendedBreakMinutes: number;
+        timedAssessmentPolicy: WellbeingRuleVersion['timedAssessmentBreakPolicy'];
+        message: string;
+      } | null;
+    }>('/api/wellbeing/activity/events', {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+    }),
+
+  getStudentStudyTimeAnalytics: (studentId: string, days = 7) =>
+    apiRequest<StudentStudyTimeAnalytics>(
+      `/api/wellbeing/students/${encodeURIComponent(studentId)}/activity?days=${days}`
+    ),
+
+  getWellbeingRuleSets: () =>
+    apiRequest<{ ruleSets: WellbeingRuleSet[] }>('/api/wellbeing/rules'),
+
+  saveOrProposeWellbeingRule: (body: {
+    ruleSetId?: string;
+    title: string;
+    grade?: string;
+    subjectId?: string | null;
+    educationalStandardNote?: string;
+    dailyWarningMinutes: number;
+    dailyMaxMinutes: number;
+    weeklyWarningMinutes: number;
+    weeklyMaxMinutes: number;
+    continuousSessionWarningMinutes: number;
+    recommendedBreakMinutes: number;
+    breakIntervalMinutes: number;
+    inactivityThresholdSeconds?: number;
+    reminderFrequencyMinutes?: number;
+    timedAssessmentBreakPolicy?: WellbeingRuleVersion['timedAssessmentBreakPolicy'];
+    staffReviewDailyExceedCount?: number;
+    staffReviewConsecutiveDays?: number;
+    escalationContinuousDays?: number;
+    changeNote?: string;
+    activateImmediately?: boolean;
+  }) =>
+    apiRequest<{ ruleSetId: string; version: WellbeingRuleVersion }>('/api/wellbeing/rules', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  approveWellbeingRuleVersion: (versionId: string) =>
+    apiRequest<{ version: WellbeingRuleVersion }>(
+      `/api/wellbeing/rules/versions/${encodeURIComponent(versionId)}/approve`,
+      { method: 'POST' }
+    ),
+
+  validatePreScheduleWellbeing: (body: {
+    studentId: string;
+    proposedSlots: {
+      localDate: string;
+      startUtc: string;
+      endUtc: string;
+      durationMinutes: number;
+      title?: string;
+    }[];
+    subjectIds?: string[];
+  }) =>
+    apiRequest<PreScheduleWellbeingValidationResult>('/api/wellbeing/schedule/validate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getStudentWellbeingWarnings: (studentId: string) =>
+    apiRequest<{ warnings: WellbeingWarningRecord[] }>(
+      `/api/wellbeing/students/${encodeURIComponent(studentId)}/warnings`
+    ),
+
+  acknowledgeWellbeingWarning: (
+    warningId: string,
+    decision: ParentScheduleDecision,
+    notes?: string
+  ) =>
+    apiRequest<{ warning: WellbeingWarningRecord }>(
+      `/api/wellbeing/warnings/${encodeURIComponent(warningId)}/acknowledge`,
+      { method: 'POST', body: JSON.stringify({ decision, notes }) }
+    ),
+
+  getWellbeingCases: (filters: { status?: string; priority?: string; studentId?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (filters.status && filters.status !== 'ALL') q.set('status', filters.status);
+    if (filters.priority && filters.priority !== 'ALL') q.set('priority', filters.priority);
+    if (filters.studentId) q.set('studentId', filters.studentId);
+    const qs = q.toString();
+    return apiRequest<{ cases: WellbeingCaseRecord[] }>(
+      `/api/wellbeing/cases${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  getWellbeingCaseDetail: (caseId: string) =>
+    apiRequest<WellbeingCaseDetail>(`/api/wellbeing/cases/${encodeURIComponent(caseId)}`),
+
+  assignWellbeingCase: (caseId: string, assignedToUserId: string, reason?: string) =>
+    apiRequest<{ caseRecord: WellbeingCaseRecord }>(
+      `/api/wellbeing/cases/${encodeURIComponent(caseId)}/assign`,
+      { method: 'POST', body: JSON.stringify({ assignedToUserId, reason }) }
+    ),
+
+  transitionWellbeingCase: (
+    caseId: string,
+    body: {
+      nextStatus: WellbeingCaseStatus;
+      factualObservations?: string;
+      staffInterpretation?: string;
+      limitationsNoted?: string;
+      dismissalReason?: string;
+      resolutionSummary?: string;
+      priority?: WellbeingCasePriority;
+    }
+  ) =>
+    apiRequest<{ caseRecord: WellbeingCaseRecord }>(
+      `/api/wellbeing/cases/${encodeURIComponent(caseId)}/transition`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  createParentContactRecord: (
+    caseId: string,
+    body: {
+      contactMethod: ParentContactRecord['contactMethod'];
+      contactOutcome: ParentContactRecord['contactOutcome'];
+      factualObservations: string;
+      directQuotations?: string;
+      staffOpinions?: string;
+      guidanceProvided: string;
+      parentResponse?: string;
+      agreedActions?: string;
+      followUpDate?: string | null;
+      resultingCaseStatus?: WellbeingCaseStatus;
+      finalizeImmediately?: boolean;
+    }
+  ) =>
+    apiRequest<{ contact: ParentContactRecord }>(
+      `/api/wellbeing/cases/${encodeURIComponent(caseId)}/contacts`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  finalizeParentContactRecord: (noteId: string) =>
+    apiRequest<{ contact: ParentContactRecord }>(
+      `/api/wellbeing/contacts/${encodeURIComponent(noteId)}/finalize`,
+      { method: 'POST' }
+    ),
+
+  amendParentContactRecord: (
+    noteId: string,
+    body: {
+      amendmentReason: string;
+      factualObservations: string;
+      directQuotations?: string;
+      staffOpinions?: string;
+      guidanceProvided: string;
+      parentResponse?: string;
+      agreedActions?: string;
+      followUpDate?: string | null;
+    }
+  ) =>
+    apiRequest<{ contact: ParentContactRecord }>(
+      `/api/wellbeing/contacts/${encodeURIComponent(noteId)}/amend`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  addWellbeingFollowupAction: (
+    caseId: string,
+    body: { title: string; description?: string; dueDate: string; ownerUserId?: string }
+  ) =>
+    apiRequest<{ action: WellbeingFollowupActionRecord }>(
+      `/api/wellbeing/cases/${encodeURIComponent(caseId)}/followups`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  updateWellbeingFollowupAction: (
+    actionId: string,
+    status: WellbeingFollowupActionRecord['status'],
+    completionNotes?: string
+  ) =>
+    apiRequest<{ action: WellbeingFollowupActionRecord }>(
+      `/api/wellbeing/followups/${encodeURIComponent(actionId)}`,
+      { method: 'PATCH', body: JSON.stringify({ status, completionNotes }) }
+    ),
+
+  getSafeguardingReviews: () =>
+    apiRequest<{ reviews: SafeguardingReviewRecord[] }>('/api/safeguarding/reviews'),
+
+  saveSafeguardingReview: (
+    caseId: string,
+    body: {
+      concernsSummary: string;
+      uncertaintiesAndLimitations: string;
+      chronology?: SafeguardingChronologyEntry[];
+      decision?: SafeguardingDecisionStatus;
+      referralRecommended?: boolean;
+      referralDraftText?: string;
+    }
+  ) =>
+    apiRequest<{ review: SafeguardingReviewRecord }>(
+      `/api/safeguarding/cases/${encodeURIComponent(caseId)}/review`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  approveSafeguardingReview: (
+    reviewId: string,
+    body: {
+      decision:
+        | 'APPROVED_FOR_REFERRAL'
+        | 'REFERRED_TO_AUTHORITY'
+        | 'NOT_REFERRED_NO_RISK'
+        | 'MONITORING_WITH_SUPPORT';
+      externalAuthorityRef?: string;
+    }
+  ) =>
+    apiRequest<{ review: SafeguardingReviewRecord }>(
+      `/api/safeguarding/reviews/${encodeURIComponent(reviewId)}/approve`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  getAuditDocuments: (studentId?: string) =>
+    apiRequest<{ documents: AuditDocumentRecord[] }>(
+      `/api/audit-documents${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`
+    ),
+
+  generateAuditDocument: (body: {
+    documentType: AuditDocumentType;
+    studentId: string;
+    caseId?: string | null;
+    safeguardingReviewId?: string | null;
+    periodStart?: string;
+    periodEnd?: string;
+    title?: string;
+    humanApproved?: boolean;
+  }) =>
+    apiRequest<{ document: AuditDocumentRecord }>('/api/audit-documents/generate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getAuditDocumentAccessLogs: (documentId?: string) =>
+    apiRequest<{ logs: AuditDocumentAccessLog[] }>(
+      `/api/audit-documents/access-logs${documentId ? `?documentId=${encodeURIComponent(documentId)}` : ''}`
+    ),
+
+  downloadAuditDocumentPdf: async (docId: string, reportCode?: string) => {
+    const token = getStoredToken();
+    const res = await fetch(`/api/audit-documents/${encodeURIComponent(docId)}/export.pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((data as { error?: string }).error || `Audit PDF export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `${reportCode || docId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1500);
+  },
+
+  // --- Enhancement 07: Parent Academic Routine Builder, Weighted Learning & Teacher Evaluation ---
+  getRoutineSkills: () =>
+    apiRequest<{
+      disclaimer: string;
+      skills: { key: EducationalSkillCategory; label: string; description: string }[];
+    }>('/api/routines/skills'),
+
+  getQuestionSkillMappings: (questionId?: string) =>
+    apiRequest<{ mappings: QuestionSkillMappingRecord[] }>(
+      `/api/routines/question-skills${questionId ? `?questionId=${encodeURIComponent(questionId)}` : ''}`
+    ),
+
+  updateQuestionSkillMappings: (
+    questionId: string,
+    body: {
+      primarySkill: EducationalSkillCategory;
+      secondarySkill?: EducationalSkillCategory | null;
+      skillWeights?: Partial<Record<EducationalSkillCategory, number>>;
+      source?: SkillClassificationSource;
+      notes?: string;
+    }
+  ) =>
+    apiRequest<{ mapping: QuestionSkillMappingRecord }>(
+      `/api/routines/question-skills/${encodeURIComponent(questionId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    ),
+
+  previewRoutineValidation: (body: AcademicRoutineConfigInput) =>
+    apiRequest<{ validation: RoutineValidationReport }>('/api/routines/preview-validation', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  listRoutines: (studentId?: string) =>
+    apiRequest<{ routines: AcademicRoutineRecord[] }>(
+      `/api/routines${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`
+    ),
+
+  getRoutineDetail: (routineId: string) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>(
+      `/api/routines/${encodeURIComponent(routineId)}`
+    ),
+
+  createRoutine: (body: AcademicRoutineConfigInput) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>('/api/routines', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateRoutine: (routineId: string, body: AcademicRoutineConfigInput) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>(
+      `/api/routines/${encodeURIComponent(routineId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    ),
+
+  submitRoutineForReview: (routineId: string) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>(
+      `/api/routines/${encodeURIComponent(routineId)}/submit`,
+      { method: 'POST' }
+    ),
+
+  submitTeacherRoutineEvaluation: (
+    routineId: string,
+    body: {
+      subjectComponentDecisions: Record<string, 'approved' | 'changes_requested' | 'comment_only'>;
+      decision: 'approved_components' | 'recommend_changes' | 'comment_only';
+      topicSuitabilityNote?: string;
+      difficultySuitabilityNote?: string;
+      skillBalanceNote?: string;
+      evidenceComparisonNote?: string;
+      generalComment: string;
+      changeRequests?: {
+        subjectId?: string;
+        category: RoutineChangeRequest['category'];
+        summary: string;
+        suggestedChange?: Record<string, unknown>;
+      }[];
+    }
+  ) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>(
+      `/api/routines/${encodeURIComponent(routineId)}/teacher-evaluate`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  submitAdminRoutineEvaluation: (
+    routineId: string,
+    body: {
+      decision: 'approved' | 'changes_requested' | 'rejected' | 'comment_only';
+      overallBalanceNote?: string;
+      wellbeingReviewNote?: string;
+      coordinationSummary?: string;
+      changeRequestSummary?: string;
+    }
+  ) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>(
+      `/api/routines/${encodeURIComponent(routineId)}/admin-evaluate`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  activateRoutine: (
+    routineId: string,
+    body: {
+      wellbeingDecision?: ParentScheduleDecision;
+      wellbeingNotes?: string;
+      skipConflicts?: boolean;
+    } = {}
+  ) =>
+    apiRequest<{
+      detail: AcademicRoutineDetail;
+      timetable: StudentTimetable;
+      sessionsCreated: ScheduledSessionRecord[];
+      shortages: RoutineValidationReport['questionPreview']['shortages'];
+    }>(`/api/routines/${encodeURIComponent(routineId)}/activate`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  transitionRoutineLifecycle: (
+    routineId: string,
+    action: 'pause' | 'resume' | 'complete' | 'archive'
+  ) =>
+    apiRequest<{ detail: AcademicRoutineDetail }>(
+      `/api/routines/${encodeURIComponent(routineId)}/lifecycle`,
+      { method: 'PATCH', body: JSON.stringify({ action }) }
+    ),
+
+  evaluateRoutineAdaptiveAdjustments: (routineId: string) =>
+    apiRequest<{
+      mode: 'fixed' | 'adaptive';
+      adjustment: RoutineAdaptiveAdjustment | null;
+      explanation: string;
+    }>(`/api/routines/${encodeURIComponent(routineId)}/adaptive-evaluate`, {
+      method: 'POST',
+    }),
+
+  getRoutinePerformanceSummary: (routineId: string) =>
+    apiRequest<{ performance: RoutinePerformanceSummary }>(
+      `/api/routines/${encodeURIComponent(routineId)}/performance`
+    ),
+
+  // --- Enhancement 08: Gamified Learning Roadmaps, Progressive Levels & Missions ---
+  listRoadmaps: () => apiRequest<{ roadmaps: GameRoadmapDetail[] }>('/api/roadmaps'),
+
+  getRoadmapDetail: (roadmapId: string, studentId?: string) =>
+    apiRequest<{ detail: GameRoadmapDetail }>(
+      `/api/roadmaps/${encodeURIComponent(roadmapId)}${
+        studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''
+      }`
+    ),
+
+  getGamificationDashboard: (studentId?: string) =>
+    apiRequest<{ dashboard: StudentGamificationDashboard }>(
+      `/api/roadmaps/dashboard${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`
+    ),
+
+  createRoadmap: (body: {
+    name: string;
+    description?: string;
+    grade?: string;
+    scopeType?: 'subject' | 'mixed';
+    subjectIds: string[];
+    themeKey?: string;
+    bannerImageUrl?: string | null;
+    growthFormula?: Partial<RoadmapGrowthFormula>;
+    wellbeingMaxSessionMinutes?: number;
+    initialStageTitle?: string;
+  }) =>
+    apiRequest<{ detail: GameRoadmapDetail }>('/api/roadmaps', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  createRoadmapStage: (
+    roadmapId: string,
+    body: {
+      title: string;
+      description?: string;
+      sortOrder?: number;
+      themeColor?: string;
+      milestoneRewardBadgeId?: string | null;
+    }
+  ) =>
+    apiRequest<{ stage: RoadmapStage }>(
+      `/api/roadmaps/${encodeURIComponent(roadmapId)}/stages`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  upsertRoadmapLevel: (
+    roadmapId: string,
+    body: {
+      id?: string;
+      stageId: string;
+      sequenceOrder?: number;
+      title: string;
+      description?: string;
+      academicObjectives?: string[];
+      subjectIds?: string[];
+      topicIds?: string[];
+      subtopicIds?: string[];
+      explicitQuestionCount?: number | null;
+      maxQuestionCount?: number | null;
+      difficultyDistribution?: RoadmapDifficultyWeights;
+      minMasteryAccuracyPercent?: number;
+      requiredMissionsCount?: number;
+      hasCheckpoint?: boolean;
+      specialUnlockNote?: string | null;
+      xpReward?: number;
+      starsReward?: number;
+      coinsReward?: number;
+      unlockCosmeticId?: string | null;
+      prerequisiteLevelIds?: string[];
+      autoGenerateMissions?: boolean;
+    }
+  ) =>
+    apiRequest<{ detail: GameRoadmapDetail }>(
+      `/api/roadmaps/${encodeURIComponent(roadmapId)}/levels`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  upsertRoadmapMission: (
+    levelId: string,
+    body: {
+      id?: string;
+      sortOrder?: number;
+      title: string;
+      description?: string;
+      missionType: RoadmapMissionType;
+      subjectIds?: string[];
+      topicIds?: string[];
+      subtopicIds?: string[];
+      questionCount: number;
+      difficultyDistribution?: RoadmapDifficultyWeights;
+      timeLimitSeconds?: number | null;
+      isRequired?: boolean;
+      minPassAccuracyPercent?: number;
+      xpReward?: number;
+      starsReward?: number;
+      coinsReward?: number;
+      puzzleHintMode?: boolean;
+      allowRetry?: boolean;
+      maxAttemptsPerDay?: number;
+    }
+  ) =>
+    apiRequest<{ detail: GameRoadmapDetail }>(
+      `/api/roadmaps/levels/${encodeURIComponent(levelId)}/missions`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  transitionRoadmapStatus: (
+    roadmapId: string,
+    body: { toStatus: RoadmapStatus; note?: string }
+  ) =>
+    apiRequest<{ detail: GameRoadmapDetail }>(
+      `/api/roadmaps/${encodeURIComponent(roadmapId)}/transition`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  startRoadmapMission: (missionId: string, studentId?: string) =>
+    apiRequest<{
+      missionAttemptId: string;
+      mission: RoadmapMission;
+      level: RoadmapLevel;
+      roadmap: GameRoadmapRecord;
+      questions: StudentQuizView[];
+      shortageWarning: string | null;
+      wellbeingNotice: string | null;
+      dailyLimitReached: boolean;
+    }>(`/api/roadmaps/missions/${encodeURIComponent(missionId)}/start`, {
+      method: 'POST',
+      body: JSON.stringify(studentId ? { studentId } : {}),
+    }),
+
+  completeRoadmapMission: (
+    missionId: string,
+    body: {
+      missionAttemptId: string;
+      idempotencyKey: string;
+      answers: {
+        questionId: string;
+        selectedIndex: number | null;
+        hintUsed?: boolean;
+        responseDurationMs?: number;
+      }[];
+      durationSeconds?: number;
+      observedActiveSeconds?: number;
+    }
+  ) =>
+    apiRequest<{ result: RoadmapMissionCompletionResult }>(
+      `/api/roadmaps/missions/${encodeURIComponent(missionId)}/complete`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  equipRoadmapReward: (rewardDefId: string) =>
+    apiRequest<{ unlockedRewards: StudentUnlockedRewardRecord[] }>(
+      `/api/roadmaps/rewards/${encodeURIComponent(rewardDefId)}/equip`,
+      { method: 'POST' }
+    ),
+
+  scheduleRoadmapMission: (body: {
+    studentId: string;
+    missionId: string;
+    startDate: string;
+    timeOfDay: string;
+    timezone?: string;
+    durationMinutes?: number;
+  }) =>
+    apiRequest<{ sessionId: string; warningMessages: string[] }>(
+      '/api/roadmaps/schedule-mission',
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
+
+  getRoadmapProgressReports: (studentId: string, roadmapId?: string) =>
+    apiRequest<{ reports: RoadmapProgressReport[] }>(
+      `/api/roadmaps/reports/${encodeURIComponent(studentId)}${
+        roadmapId ? `?roadmapId=${encodeURIComponent(roadmapId)}` : ''
+      }`
     ),
 };
 

@@ -1343,6 +1343,7 @@ export class ParentIntelligenceService {
                 : `Submission Notice: ${report.studentName} · ${report.assessmentTitle} · මං 5හේ`,
             category: 'progress_report',
             htmlBody: emailPayload.html,
+            textBody: emailPayload.text,
           });
           deliveries.push(
             this.recordDeliveryRow({
@@ -2828,6 +2829,80 @@ export class ParentIntelligenceService {
     return this.getSessionById(sessionId)!;
   }
 
+  public updateTimetableStatus(
+    actor: UserAccount,
+    timetableId: string,
+    action: 'pause' | 'resume' | 'cancel'
+  ): { timetable: StudentTimetable; updatedSessions: number } {
+    const ttRow = this.db
+      .prepare('SELECT * FROM student_timetables WHERE id = ?')
+      .get(timetableId) as Record<string, unknown> | undefined;
+    if (!ttRow) throw new HttpError(404, 'Student timetable not found.');
+    const studentId = String(ttRow.student_id);
+    this.assertCanManageStudentSchedule(actor, studentId);
+
+    const nextTtStatus: StudentTimetable['status'] =
+      action === 'pause' ? 'PAUSED' : action === 'cancel' ? 'CANCELLED' : 'ACTIVE';
+    const nextSessionStatus: ScheduledSessionStatus =
+      action === 'pause' ? 'PAUSED' : action === 'cancel' ? 'CANCELLED' : 'SCHEDULED';
+    const targetFilter = action === 'resume' ? `'PAUSED'` : `'SCHEDULED', 'PAUSED'`;
+    const now = new Date().toISOString();
+    let updatedSessions = 0;
+
+    this.dbWrapper.transaction(() => {
+      this.db
+        .prepare('UPDATE student_timetables SET status = ?, updated_at = ? WHERE id = ?')
+        .run(nextTtStatus, now, timetableId);
+
+      const affected = this.db
+        .prepare(
+          `SELECT id FROM scheduled_sessions WHERE timetable_id = ? AND status IN (${targetFilter})`
+        )
+        .all(timetableId) as { id: string }[];
+      updatedSessions = affected.length;
+
+      this.db
+        .prepare(
+          `UPDATE scheduled_sessions SET status = ?, updated_at = ?
+           WHERE timetable_id = ? AND status IN (${targetFilter})`
+        )
+        .run(nextSessionStatus, now, timetableId);
+
+      if (action === 'pause' || action === 'cancel') {
+        for (const s of affected) {
+          this.db
+            .prepare(`UPDATE reminder_jobs SET status = 'CANCELLED' WHERE session_id = ? AND status = 'PENDING'`)
+            .run(s.id);
+        }
+      }
+    });
+
+    if (action === 'resume') {
+      const resumed = this.db
+        .prepare(`SELECT id FROM scheduled_sessions WHERE timetable_id = ? AND status = 'SCHEDULED'`)
+        .all(timetableId) as { id: string }[];
+      for (const s of resumed) {
+        this.syncReminderJobsForSession(s.id);
+      }
+    }
+
+    this.writeScheduleAuditEvent({
+      studentId,
+      actor,
+      eventType: `TIMETABLE_${nextTtStatus}`,
+      targetId: timetableId,
+      summary: `Timetable "${String(ttRow.title)}" set to ${nextTtStatus} (${updatedSessions} session(s) updated).`,
+    });
+
+    const updatedRow = this.db
+      .prepare('SELECT * FROM student_timetables WHERE id = ?')
+      .get(timetableId) as Record<string, unknown>;
+    return {
+      timetable: this.hydrateTimetableRow(updatedRow),
+      updatedSessions,
+    };
+  }
+
   // =========================================================================
   // 6. REMINDER PREFERENCES, START/COMPLETE SESSIONS & IDEMPOTENT SWEEP
   // =========================================================================
@@ -3054,7 +3129,8 @@ export class ParentIntelligenceService {
         `Cannot start this session because its status is ${sess.status}. Reschedule or resume it first.`
       );
     }
-    if (sess.status === 'COMPLETED' && sess.attemptsUsed >= sess.maxAttempts) {
+    const isResuming = sess.status === 'IN_PROGRESS';
+    if (!isResuming && sess.attemptsUsed >= sess.maxAttempts) {
       throw new HttpError(400, 'Maximum scheduled attempts have already been completed.');
     }
 
@@ -3067,28 +3143,40 @@ export class ParentIntelligenceService {
     } else if (sess.fixedPaperId) {
       launchMode = 'fixed_paper';
     } else {
-      // Freeze snapshot if not already generated
+      // Freeze snapshot if not already generated; never silently substitute mismatched questions
       let snapshotIds = sess.questionSnapshotIds || [];
       if (snapshotIds.length === 0) {
         const selection = this.selectMatchingQuestionsForSchedule(sess.studentId, sess.filterCriteria);
-        if (selection.selected.length === 0) {
+        if (selection.insufficient || selection.selected.length === 0) {
           throw new HttpError(
             400,
-            'No approved active questions match the scheduled criteria anymore. Update filters or reschedule.'
+            selection.warnings[0] ||
+              'Not enough approved active questions match the scheduled criteria anymore. Update filters or reschedule.'
           );
         }
         snapshotIds = selection.selected.map((q) => q.id);
       }
-      quizzes = snapshotIds
-        .map((id) => this.academicService.resolveQuizById(id) || generateVirtualQuizFromPool(1))
-        .filter(Boolean);
+      const resolvedQuizzes: QuizItem[] = [];
+      for (const qId of snapshotIds) {
+        const resolved = this.academicService.resolveQuizById(qId);
+        if (resolved) resolvedQuizzes.push(resolved);
+      }
+      if (resolvedQuizzes.length === 0 || resolvedQuizzes.length < snapshotIds.length) {
+        throw new HttpError(
+          400,
+          'Some snapshotted questions for this scheduled session are no longer available. Please ask a guardian to adjust filters or reschedule.'
+        );
+      }
+      quizzes = resolvedQuizzes;
 
       const now = new Date().toISOString();
       this.db
         .prepare(
           `UPDATE scheduled_sessions SET
-            status = 'IN_PROGRESS', attempts_used = attempts_used + 1,
-            question_snapshot_ids_json = ?, updated_at = ?
+            status = 'IN_PROGRESS',
+            attempts_used = CASE WHEN status = 'IN_PROGRESS' THEN attempts_used ELSE attempts_used + 1 END,
+            question_snapshot_ids_json = ?,
+            updated_at = ?
            WHERE id = ?`
         )
         .run(JSON.stringify(snapshotIds), now, sessionId);
@@ -3101,7 +3189,9 @@ export class ParentIntelligenceService {
     this.db
       .prepare(
         `UPDATE scheduled_sessions SET
-          status = 'IN_PROGRESS', attempts_used = attempts_used + 1, updated_at = ?
+          status = 'IN_PROGRESS',
+          attempts_used = CASE WHEN status = 'IN_PROGRESS' THEN attempts_used ELSE attempts_used + 1 END,
+          updated_at = ?
          WHERE id = ?`
       )
       .run(now, sessionId);
@@ -3332,6 +3422,7 @@ export class ParentIntelligenceService {
           subject: `Study Reminder (${timeRemainingText}): ${sess.title} · මං 5හේ`,
           category: 'reminder',
           htmlBody: emailContent.html,
+          textBody: emailContent.text,
         });
       } else if (channel === 'whatsapp') {
         if (recipient.whatsappVerified === false || !recipient.whatsappNumber) {

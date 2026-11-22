@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, Calendar, FileText, Lock, Users } from 'lucide-react';
+import { BookOpen, Calendar, Compass, FileText, Lock, Sliders, Users } from 'lucide-react';
 import { api, AuthUser } from '../lib/api';
 import type { SubjectCategory, SubtopicNode, TopicNode } from '../lib/types';
 import { AssessmentBuilderWorkspace } from './AssessmentBuilderWorkspace';
@@ -7,8 +7,12 @@ import { InterventionWorkspace } from './InterventionWorkspace';
 import { KnowledgePublishingConsole } from './KnowledgePublishingConsole';
 import { QuestionBankManager } from './QuestionBankManager';
 import { QuestionReviewDrawer } from './QuestionReviewDrawer';
+import { RoadmapBuilderConsole } from './RoadmapBuilderConsole';
+import { RoutineReviewConsole } from './RoutineReviewConsole';
 import { ScopedAnalyticsView } from './ScopedAnalyticsView';
 import { TimetablePresetManager } from './TimetablePresetManager';
+import { WellbeingCaseConsole } from './WellbeingCaseConsole';
+import { WellbeingRulesManager } from './WellbeingRulesManager';
 
 interface TeacherPortalProps {
   user: AuthUser;
@@ -36,7 +40,10 @@ export function TeacherPortal({
   const authorizedTopics = topics.filter((t) => assignedIds.includes(t.subjectId));
   const authorizedSubtopics = subtopics.filter((st) => assignedIds.includes(st.subjectId));
 
-  const [questionTab, setQuestionTab] = useState<'bank' | 'assessments' | 'presets'>('bank');
+  const [questionTab, setQuestionTab] = useState<
+    'bank' | 'assessments' | 'presets' | 'routines' | 'roadmaps'
+  >('bank');
+  const [interventionTab, setInterventionTab] = useState<'academic' | 'wellbeing' | 'guidelines'>('academic');
   const [inspectedQuestionId, setInspectedQuestionId] = useState<string | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(initialCaseId || null);
   const [parentSupportSummaries, setParentSupportSummaries] = useState<
@@ -204,6 +211,32 @@ export function TeacherPortal({
                 <Calendar className="w-3.5 h-3.5" />
                 <span>Timetable Presets</span>
               </button>
+              <button
+                type="button"
+                data-testid="teacher-tab-routines"
+                onClick={() => setQuestionTab('routines')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  questionTab === 'routines'
+                    ? 'bg-[#6D28D9] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Parent Routines</span>
+              </button>
+              <button
+                type="button"
+                data-testid="teacher-tab-roadmaps"
+                onClick={() => setQuestionTab('roadmaps')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  questionTab === 'roadmaps'
+                    ? 'bg-[#0F2942] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Quest Roadmaps</span>
+              </button>
             </div>
           </div>
 
@@ -223,6 +256,15 @@ export function TeacherPortal({
               subjects={authorizedSubjects}
               topics={authorizedTopics}
             />
+          ) : questionTab === 'routines' ? (
+            <RoutineReviewConsole role="teacher" user={user} subjects={authorizedSubjects} />
+          ) : questionTab === 'roadmaps' ? (
+            <RoadmapBuilderConsole
+              role="teacher"
+              user={user}
+              subjects={authorizedSubjects}
+              topics={authorizedTopics}
+            />
           ) : (
             <TimetablePresetManager
               role="teacher"
@@ -235,12 +277,64 @@ export function TeacherPortal({
       )}
 
       {activeSection === 'interventions' && (
-        <InterventionWorkspace
-          subjects={authorizedSubjects}
-          topics={authorizedTopics}
-          initialCaseId={selectedCaseId}
-          onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
-        />
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border border-[#DCEBFA] p-3">
+            <div className="text-xs font-semibold text-[#526A84] px-2">
+              Manage repeated-error academic interventions, subject-scoped wellbeing reviews, and study pacing guidelines
+            </div>
+            <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F3F9FF] rounded-xl border border-[#DCEBFA]">
+              <button
+                type="button"
+                data-testid="teacher-interventions-academic"
+                onClick={() => setInterventionTab('academic')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  interventionTab === 'academic'
+                    ? 'bg-[#158EE3] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Repeated-Error Academic Cases
+              </button>
+              <button
+                type="button"
+                data-testid="teacher-interventions-wellbeing"
+                onClick={() => setInterventionTab('wellbeing')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  interventionTab === 'wellbeing'
+                    ? 'bg-[#0F2942] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Study Wellbeing &amp; Parent Contact
+              </button>
+              <button
+                type="button"
+                data-testid="teacher-interventions-guidelines"
+                onClick={() => setInterventionTab('guidelines')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap shrink-0 ${
+                  interventionTab === 'guidelines'
+                    ? 'bg-[#2E7D32] text-white'
+                    : 'text-[#526A84] hover:text-[#0F2942]'
+                }`}
+              >
+                Pacing Guideline Proposals
+              </button>
+            </div>
+          </div>
+
+          {interventionTab === 'academic' ? (
+            <InterventionWorkspace
+              subjects={authorizedSubjects}
+              topics={authorizedTopics}
+              initialCaseId={selectedCaseId}
+              onInspectQuestion={(qId) => setInspectedQuestionId(qId)}
+            />
+          ) : interventionTab === 'wellbeing' ? (
+            <WellbeingCaseConsole role="teacher" user={user} />
+          ) : (
+            <WellbeingRulesManager role="teacher" user={user} subjects={authorizedSubjects} />
+          )}
+        </div>
       )}
 
       {activeSection === 'knowledge' && (

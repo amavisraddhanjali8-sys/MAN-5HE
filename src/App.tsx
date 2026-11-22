@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
+  Compass,
   FileText,
   Home,
   LayoutDashboard,
@@ -39,6 +40,7 @@ import { ParentLearningPlanner } from './components/ParentLearningPlanner';
 import { PracticeArena, type PracticeInitialFocus } from './components/PracticeArena';
 import { ProfileAlertsMenu } from './components/ProfileAlertsMenu';
 import { StudentHome } from './components/StudentHome';
+import { StudentRoadmapQuestView } from './components/StudentRoadmapQuestView';
 import { SubjectProficiencyRadar } from './components/SubjectProficiencyRadar';
 import { SystemDocsView } from './components/SystemDocsView';
 import { TeacherPortal } from './components/TeacherPortal';
@@ -47,6 +49,7 @@ import { TimedExamHall, type ScheduledExamLaunch } from './components/TimedExamH
 type AppView =
   | 'home'
   | 'practice'
+  | 'quests'
   | 'exams'
   | 'progress'
   | 'billing'
@@ -88,6 +91,7 @@ export default function App() {
   const [guardianLinks, setGuardianLinks] = useState<GuardianStudentLink[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>('usr-student-1');
   const [initialCaseId, setInitialCaseId] = useState<string | null>(null);
+  const [initialReportId, setInitialReportId] = useState<string | null>(null);
   const [securityModalOpen, setSecurityModalOpen] = useState(false);
   const [forceTotpOnboarding, setForceTotpOnboarding] = useState(false);
 
@@ -129,7 +133,51 @@ export default function App() {
       setSubtopics(hierRes.subtopics);
       setStudentInterventions(intRes.interventions);
       if (!preserveView) {
-        setView(defaultViewForRole(analyticsRes.user.role));
+        const params =
+          typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const deepTab = params?.get('tab');
+        const deepReportId = params?.get('reportId');
+        const deepStudentId = params?.get('studentId');
+        const deepSessionId = params?.get('session');
+
+        if (
+          analyticsRes.user.role === 'parent' &&
+          (deepTab === 'progress' || deepReportId)
+        ) {
+          if (deepStudentId && resolvedLinks.some((l) => l.studentUserId === deepStudentId)) {
+            setSelectedChildId(deepStudentId);
+            const childAnalytics = await api.getStudentAnalytics(deepStudentId).catch(() => null);
+            if (childAnalytics) {
+              setAttempts(childAnalytics.attempts);
+              setTrajectory(childAnalytics.trajectory);
+            }
+          }
+          if (deepReportId) setInitialReportId(deepReportId);
+          setView('progress');
+          if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        } else if (analyticsRes.user.role === 'student' && deepSessionId) {
+          const sched = await api
+            .getStudentScheduleDashboard(analyticsRes.user.id)
+            .catch(() => null);
+          const matchedSession = sched?.sessions.find((s) => s.id === deepSessionId);
+          if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          if (matchedSession) {
+            await handleStartScheduledSession(matchedSession);
+          } else {
+            setView('home');
+          }
+        } else if (analyticsRes.user.role === 'student' && deepTab === 'progress') {
+          setView('progress');
+          if (typeof window !== 'undefined' && window.location.search) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        } else {
+          setView(defaultViewForRole(analyticsRes.user.role));
+        }
       }
     } catch {
       // keep existing user
@@ -316,11 +364,12 @@ export default function App() {
       : [
           { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" /> },
           { id: 'practice', label: 'Learn & Practise', icon: <BookOpen className="w-4 h-4" /> },
+          { id: 'quests', label: 'Quest Roadmap', icon: <Compass className="w-4 h-4" /> },
           { id: 'exams', label: 'Examinations', icon: <FileText className="w-4 h-4" /> },
           { id: 'progress', label: 'My Progress', icon: <TrendingUp className="w-4 h-4" /> },
         ];
 
-  const topHeaderNav = navItems.slice(0, 4);
+  const topHeaderNav = user.role === 'student' ? navItems.slice(0, 5) : navItems.slice(0, 4);
 
   const adminSectionFromView = (v: AppView): AdminSectionId => {
     switch (v) {
@@ -528,6 +577,13 @@ export default function App() {
               />
             )}
 
+            {view === 'quests' && (
+              <StudentRoadmapQuestView
+                user={user}
+                onUserStarsUpdated={() => loadWorkspaceData(user, true)}
+              />
+            )}
+
             {view === 'exams' && (
               <TimedExamHall
                 user={user}
@@ -553,6 +609,8 @@ export default function App() {
                     onSelectStudentId={handleSelectParentChild}
                     links={guardianLinks}
                     onLinksUpdated={() => loadWorkspaceData(user, true, selectedChildId)}
+                    initialReportId={initialReportId}
+                    onConsumeInitialReport={() => setInitialReportId(null)}
                   />
                 )}
 

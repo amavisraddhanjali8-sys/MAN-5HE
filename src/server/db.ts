@@ -19,6 +19,11 @@ import {
   buildProgressEmailHtml,
   buildWhatsAppProgressMessage,
 } from '../lib/notifications.ts';
+import {
+  computeMaterialHash,
+  EDUCATIONAL_SKILL_DISCLAIMER,
+  mapQuestionToDefaultSkills,
+} from '../lib/routineEngine.ts';
 import type {
   AcademicConfig,
   AttemptRecord,
@@ -498,6 +503,34 @@ export class Man5heDatabase {
         .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
         .run(7, '007_enhancement05_parent_intelligence_and_scheduling', new Date().toISOString());
     }
+
+    if (!applied.has(8)) {
+      this.applyMigration8WellbeingAndSafeguardingSchema();
+      this.db
+        .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(8, '008_enhancement06_wellbeing_and_safeguarding', new Date().toISOString());
+    }
+
+    if (!applied.has(9)) {
+      this.applyMigration9AcademicRoutineBuilderSchema();
+      this.db
+        .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(9, '009_enhancement07_academic_routine_builder', new Date().toISOString());
+    }
+
+    if (!applied.has(10)) {
+      this.applyMigration10GamifiedRoadmapsSchema();
+      this.db
+        .prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(10, '010_enhancement08_gamified_roadmaps', new Date().toISOString());
+    }
+
+    const emailLogCols = (
+      this.db.prepare('PRAGMA table_info(email_logs)').all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!emailLogCols.includes('text_body')) {
+      this.db.exec('ALTER TABLE email_logs ADD COLUMN text_body TEXT;');
+    }
   }
 
   private applyMigration1(): void {
@@ -812,6 +845,7 @@ export class Man5heDatabase {
         category TEXT NOT NULL,
         otp_code TEXT,
         html_body TEXT NOT NULL,
+        text_body TEXT,
         sent_at TEXT NOT NULL
       );
 
@@ -3813,6 +3847,1479 @@ export class Man5heDatabase {
     const fkErrors = this.db.prepare('PRAGMA foreign_key_check').all();
     if (fkErrors.length > 0) {
       throw new Error(`Foreign key integrity check failed after migration 7: ${JSON.stringify(fkErrors)}`);
+    }
+  }
+
+  private applyMigration8WellbeingAndSafeguardingSchema(): void {
+    const userCols = (
+      this.db.prepare('PRAGMA table_info(users)').all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!userCols.includes('safeguarding_designated')) {
+      this.db.exec(`ALTER TABLE users ADD COLUMN safeguarding_designated INTEGER NOT NULL DEFAULT 0;`);
+    }
+
+    const now = new Date().toISOString();
+    const todayDate = now.slice(0, 10);
+    const yesterdayDate = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
+    this.transaction(() => {
+      // Mark admin accounts as designated safeguarding personnel by default
+      this.db.exec(`UPDATE users SET safeguarding_designated = 1 WHERE role = 'admin';`);
+
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS study_activity_events (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          idempotency_key TEXT NOT NULL,
+          session_key TEXT NOT NULL,
+          event_type TEXT NOT NULL CHECK (event_type IN (
+            'session_open','interaction_heartbeat','question_viewed','answer_selected','hint_opened',
+            'tab_backgrounded','tab_resumed','network_disconnected','network_reconnected',
+            'break_started','break_ended','paused','resumed','session_closed'
+          )),
+          occurred_at TEXT NOT NULL,
+          server_received_at TEXT NOT NULL,
+          context_mode TEXT NOT NULL CHECK (context_mode IN ('practice','timed_exam','scheduled_session','flashcards')),
+          device_id TEXT NOT NULL DEFAULT 'web-default',
+          tab_id TEXT NOT NULL DEFAULT 'tab-default',
+          assessment_id TEXT,
+          scheduled_session_id TEXT,
+          paper_id TEXT,
+          subject_id TEXT,
+          question_id TEXT,
+          UNIQUE(user_id, idempotency_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_study_events_user_session
+          ON study_activity_events(user_id, session_key, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_study_events_user_occurred
+          ON study_activity_events(user_id, occurred_at);
+
+        CREATE TABLE IF NOT EXISTS session_activity_summaries (
+          session_key TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          context_mode TEXT NOT NULL,
+          assessment_id TEXT,
+          scheduled_session_id TEXT,
+          paper_id TEXT,
+          subject_id TEXT,
+          started_at TEXT NOT NULL,
+          ended_at TEXT NOT NULL,
+          scheduled_duration_seconds INTEGER NOT NULL DEFAULT 0,
+          open_duration_seconds INTEGER NOT NULL DEFAULT 0,
+          active_duration_seconds INTEGER NOT NULL DEFAULT 0,
+          idle_duration_seconds INTEGER NOT NULL DEFAULT 0,
+          background_duration_seconds INTEGER NOT NULL DEFAULT 0,
+          break_total_seconds INTEGER NOT NULL DEFAULT 0,
+          break_count INTEGER NOT NULL DEFAULT 0,
+          continuous_peak_seconds INTEGER NOT NULL DEFAULT 0,
+          interruption_count INTEGER NOT NULL DEFAULT 0,
+          device_count INTEGER NOT NULL DEFAULT 1,
+          tab_count INTEGER NOT NULL DEFAULT 1,
+          inactivity_threshold_seconds INTEGER NOT NULL DEFAULT 120,
+          uncertainty_note TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_summary_student_started
+          ON session_activity_summaries(student_id, started_at);
+
+        CREATE TABLE IF NOT EXISTS wellbeing_rule_sets (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          grade TEXT NOT NULL DEFAULT 'Grade 5',
+          subject_id TEXT,
+          is_platform_wide INTEGER NOT NULL DEFAULT 1,
+          current_active_version_id TEXT,
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS wellbeing_rule_versions (
+          id TEXT PRIMARY KEY,
+          rule_set_id TEXT NOT NULL REFERENCES wellbeing_rule_sets(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          grade TEXT NOT NULL DEFAULT 'Grade 5',
+          subject_id TEXT,
+          title TEXT NOT NULL,
+          educational_standard_note TEXT NOT NULL,
+          daily_warning_minutes INTEGER NOT NULL,
+          daily_max_minutes INTEGER NOT NULL,
+          weekly_warning_minutes INTEGER NOT NULL,
+          weekly_max_minutes INTEGER NOT NULL,
+          continuous_session_warning_minutes INTEGER NOT NULL,
+          recommended_break_minutes INTEGER NOT NULL,
+          break_interval_minutes INTEGER NOT NULL,
+          inactivity_threshold_seconds INTEGER NOT NULL DEFAULT 120,
+          reminder_frequency_minutes INTEGER NOT NULL DEFAULT 35,
+          warning_severity TEXT NOT NULL DEFAULT 'supportive_warning',
+          timed_assessment_break_policy TEXT NOT NULL DEFAULT 'warn_non_blocking_unless_paused',
+          staff_review_daily_exceed_count INTEGER NOT NULL DEFAULT 2,
+          staff_review_consecutive_days INTEGER NOT NULL DEFAULT 3,
+          escalation_continuous_days INTEGER NOT NULL DEFAULT 5,
+          effective_from TEXT NOT NULL,
+          effective_until TEXT,
+          approval_status TEXT NOT NULL CHECK (approval_status IN ('DRAFT','PENDING_REVIEW','ACTIVE','ARCHIVED')),
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          created_by_name TEXT NOT NULL,
+          approved_by_admin_id TEXT,
+          approved_at TEXT,
+          change_note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          UNIQUE(rule_set_id, version_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS wellbeing_warnings (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          guardian_user_id TEXT,
+          trigger_source TEXT NOT NULL CHECK (trigger_source IN ('pre_schedule','live_session','daily_threshold_sweep')),
+          rule_version_id TEXT NOT NULL REFERENCES wellbeing_rule_versions(id),
+          severity TEXT NOT NULL CHECK (severity IN ('nominal','advisory','supportive_warning','staff_review_trigger')),
+          scheduled_minutes INTEGER NOT NULL DEFAULT 0,
+          observed_active_minutes INTEGER NOT NULL DEFAULT 0,
+          continuous_minutes INTEGER NOT NULL DEFAULT 0,
+          supportive_title TEXT NOT NULL,
+          guidance_summary TEXT NOT NULL,
+          suggested_adjustment_json TEXT NOT NULL DEFAULT '[]',
+          parent_decision TEXT NOT NULL DEFAULT 'pending' CHECK (parent_decision IN ('pending','adjusted','proceeded_with_acknowledgement','cancelled')),
+          parent_decision_notes TEXT,
+          parent_decided_at TEXT,
+          notified_channels_json TEXT NOT NULL DEFAULT '[]',
+          linked_case_id TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_wellbeing_warnings_student ON wellbeing_warnings(student_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS wellbeing_cases (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          student_name TEXT NOT NULL,
+          student_grade TEXT NOT NULL DEFAULT 'Grade 5',
+          ongoing_concern_key TEXT NOT NULL,
+          title TEXT NOT NULL,
+          trigger_category TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN (
+            'DETECTED','PENDING_REVIEW','UNDER_REVIEW','PARENT_CONTACTED','FOLLOW_UP',
+            'RESOLVED','DISMISSED','REOPENED','REFERRED_SAFEGUARDING'
+          )),
+          priority TEXT NOT NULL CHECK (priority IN ('low','medium','high','urgent')),
+          rule_version_id TEXT NOT NULL REFERENCES wellbeing_rule_versions(id),
+          assigned_to_user_id TEXT,
+          assigned_to_name TEXT,
+          subject_scope_ids_json TEXT NOT NULL DEFAULT '[]',
+          is_safeguarding_restricted INTEGER NOT NULL DEFAULT 0,
+          dismissal_reason TEXT,
+          resolution_summary TEXT,
+          summary_of_concern TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          closed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_wellbeing_cases_student ON wellbeing_cases(student_id, status);
+        CREATE INDEX IF NOT EXISTS idx_wellbeing_cases_concern_key ON wellbeing_cases(ongoing_concern_key, status);
+
+        CREATE TABLE IF NOT EXISTS wellbeing_case_assignments (
+          id TEXT PRIMARY KEY,
+          case_id TEXT NOT NULL REFERENCES wellbeing_cases(id) ON DELETE CASCADE,
+          assigned_to_user_id TEXT NOT NULL REFERENCES users(id),
+          assigned_to_name TEXT NOT NULL,
+          assigned_by_user_id TEXT NOT NULL REFERENCES users(id),
+          assigned_by_name TEXT NOT NULL,
+          reason TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS wellbeing_case_evidence (
+          id TEXT PRIMARY KEY,
+          case_id TEXT NOT NULL REFERENCES wellbeing_cases(id) ON DELETE CASCADE,
+          evidence_type TEXT NOT NULL,
+          reference_id TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          snapshot_json TEXT NOT NULL DEFAULT '{}',
+          attached_by_user_id TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS parent_contact_records (
+          id TEXT PRIMARY KEY,
+          note_group_id TEXT NOT NULL,
+          version_number INTEGER NOT NULL DEFAULT 1,
+          supersedes_note_id TEXT,
+          amendment_reason TEXT,
+          is_finalized INTEGER NOT NULL DEFAULT 0,
+          finalized_at TEXT,
+          case_id TEXT NOT NULL REFERENCES wellbeing_cases(id) ON DELETE CASCADE,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          guardian_user_id TEXT,
+          staff_user_id TEXT NOT NULL REFERENCES users(id),
+          staff_name TEXT NOT NULL,
+          contact_at TEXT NOT NULL,
+          contact_method TEXT NOT NULL CHECK (contact_method IN ('phone','whatsapp','email','in_person','video_call')),
+          contact_outcome TEXT NOT NULL CHECK (contact_outcome IN ('connected','left_message','no_response','scheduled_meeting')),
+          factual_observations TEXT NOT NULL,
+          direct_quotations TEXT NOT NULL DEFAULT '',
+          staff_opinions TEXT NOT NULL DEFAULT '',
+          guidance_provided TEXT NOT NULL,
+          parent_response TEXT NOT NULL DEFAULT '',
+          agreed_actions TEXT NOT NULL DEFAULT '',
+          follow_up_date TEXT,
+          evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+          resulting_case_status TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_parent_contacts_case ON parent_contact_records(case_id, note_group_id, version_number);
+
+        CREATE TABLE IF NOT EXISTS wellbeing_case_notes (
+          id TEXT PRIMARY KEY,
+          case_id TEXT NOT NULL REFERENCES wellbeing_cases(id) ON DELETE CASCADE,
+          author_user_id TEXT NOT NULL,
+          author_name TEXT NOT NULL,
+          author_role TEXT NOT NULL,
+          note_type TEXT NOT NULL CHECK (note_type IN ('system_detection','staff_review','amendment')),
+          factual_observations TEXT NOT NULL,
+          staff_interpretation TEXT NOT NULL DEFAULT '',
+          limitations_noted TEXT NOT NULL DEFAULT '',
+          supersedes_note_id TEXT,
+          version_number INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS wellbeing_followup_actions (
+          id TEXT PRIMARY KEY,
+          case_id TEXT NOT NULL REFERENCES wellbeing_cases(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          owner_user_id TEXT NOT NULL,
+          owner_name TEXT NOT NULL,
+          due_date TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('PENDING','COMPLETED','CANCELLED')),
+          completion_notes TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS safeguarding_reviews (
+          id TEXT PRIMARY KEY,
+          case_id TEXT NOT NULL REFERENCES wellbeing_cases(id) ON DELETE CASCADE,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          student_name TEXT NOT NULL,
+          concerns_summary TEXT NOT NULL,
+          uncertainties_and_limitations TEXT NOT NULL,
+          chronology_json TEXT NOT NULL DEFAULT '[]',
+          decision TEXT NOT NULL CHECK (decision IN (
+            'ASSESSMENT_IN_PROGRESS','MONITORING_WITH_SUPPORT','NOT_REFERRED_NO_RISK',
+            'DRAFT_REFERRAL_PREPARED','APPROVED_FOR_REFERRAL','REFERRED_TO_AUTHORITY'
+          )),
+          referral_recommended INTEGER NOT NULL DEFAULT 0,
+          referral_draft_text TEXT NOT NULL DEFAULT '',
+          external_authority_ref TEXT,
+          reviewed_by_user_id TEXT NOT NULL REFERENCES users(id),
+          reviewed_by_name TEXT NOT NULL,
+          approved_by_user_id TEXT,
+          approved_by_name TEXT,
+          approved_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_documents (
+          id TEXT PRIMARY KEY,
+          report_code TEXT NOT NULL UNIQUE,
+          document_type TEXT NOT NULL CHECK (document_type IN (
+            'student_activity_report','scheduled_vs_observed_report','wellbeing_warning_report',
+            'parent_contact_followup_report','internal_case_review_summary','safeguarding_referral_draft'
+          )),
+          version_number INTEGER NOT NULL DEFAULT 1,
+          student_id TEXT NOT NULL REFERENCES users(id),
+          student_name TEXT NOT NULL,
+          case_id TEXT,
+          safeguarding_review_id TEXT,
+          is_restricted_safeguarding INTEGER NOT NULL DEFAULT 0,
+          title TEXT NOT NULL,
+          prepared_by_user_id TEXT NOT NULL,
+          prepared_by_name TEXT NOT NULL,
+          prepared_by_role TEXT NOT NULL,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          rule_version_id TEXT NOT NULL,
+          rule_version_title TEXT NOT NULL,
+          factual_evidence_summary_json TEXT NOT NULL DEFAULT '[]',
+          data_sources_json TEXT NOT NULL DEFAULT '[]',
+          interventions_summary_json TEXT NOT NULL DEFAULT '[]',
+          parent_contact_history_summary_json TEXT NOT NULL DEFAULT '[]',
+          case_status_at_generation TEXT NOT NULL DEFAULT 'N/A',
+          limitations_and_uncertainties_json TEXT NOT NULL DEFAULT '[]',
+          approval_status TEXT NOT NULL CHECK (approval_status IN ('DRAFT','HUMAN_APPROVED')),
+          approved_by_user_id TEXT,
+          approved_by_name TEXT,
+          approved_at TEXT,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_document_access_logs (
+          id TEXT PRIMARY KEY,
+          document_id TEXT NOT NULL REFERENCES audit_documents(id) ON DELETE CASCADE,
+          accessor_user_id TEXT NOT NULL,
+          accessor_name TEXT NOT NULL,
+          accessor_role TEXT NOT NULL,
+          access_action TEXT NOT NULL CHECK (access_action IN ('VIEW','EXPORT_PDF','GENERATE')),
+          accessed_at TEXT NOT NULL
+        );
+      `);
+
+      // Seed default platform-wide Grade 5 Wellbeing Guideline
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO wellbeing_rule_sets (
+            id, title, grade, subject_id, is_platform_wide, current_active_version_id, created_by_user_id, created_at, updated_at
+          ) VALUES ('WBR-G5-CORE', 'Grade 5 Balanced Study & Rest Guideline', 'Grade 5', NULL, 1, 'WBRV-G5-1', 'usr-admin-1', '2026-01-01T00:00:00.000Z', ?)`
+        )
+        .run(now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO wellbeing_rule_versions (
+            id, rule_set_id, version_number, grade, subject_id, title, educational_standard_note,
+            daily_warning_minutes, daily_max_minutes, weekly_warning_minutes, weekly_max_minutes,
+            continuous_session_warning_minutes, recommended_break_minutes, break_interval_minutes,
+            inactivity_threshold_seconds, reminder_frequency_minutes, warning_severity,
+            timed_assessment_break_policy, staff_review_daily_exceed_count, staff_review_consecutive_days,
+            escalation_continuous_days, effective_from, effective_until, approval_status,
+            created_by_user_id, created_by_name, approved_by_admin_id, approved_at, change_note, created_at
+          ) VALUES (
+            'WBRV-G5-1', 'WBR-G5-CORE', 1, 'Grade 5', NULL, 'Grade 5 Balanced Study & Rest Guideline (v1)',
+            'Educational pacing guideline informed by Sri Lankan Grade 5 Scholarship home-study balance principles; not a medical or clinical standard.',
+            75, 90, 360, 450, 35, 10, 35, 120, 35, 'supportive_warning',
+            'warn_non_blocking_unless_paused', 2, 3, 5,
+            '2026-01-01T00:00:00.000Z', NULL, 'ACTIVE',
+            'usr-admin-1', 'Kavinda Wickramasinghe', 'usr-admin-1', '2026-01-01T00:00:00.000Z',
+            'Initial platform Grade 5 guideline', '2026-01-01T00:00:00.000Z'
+          )`
+        )
+        .run();
+
+      // Seed initial study activity summaries for Sayuri & Kasun
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO session_activity_summaries (
+            session_key, student_id, context_mode, assessment_id, scheduled_session_id, paper_id, subject_id,
+            started_at, ended_at, scheduled_duration_seconds, open_duration_seconds, active_duration_seconds,
+            idle_duration_seconds, background_duration_seconds, break_total_seconds, break_count,
+            continuous_peak_seconds, interruption_count, device_count, tab_count, inactivity_threshold_seconds,
+            uncertainty_note, updated_at
+          ) VALUES
+          (
+            'SES-ACT-SAYURI-1', 'usr-student-1', 'practice', NULL, NULL, NULL, 'subj-logic',
+            ?, ?, 1500, 1620, 1380, 120, 120, 300, 1,
+            1080, 1, 1, 1, 120,
+            'Observed active time requires foreground interaction within 120s. Includes 2 min open/idle window where student may have worked out sequence hops on paper.',
+            ?
+          ),
+          (
+            'SES-ACT-KASUN-1', 'usr-student-2', 'timed_exam', NULL, NULL, 'PAPER-002', 'subj-math',
+            ?, ?, 3600, 4500, 3420, 780, 300, 0, 0,
+            2880, 2, 1, 1, 120,
+            'Observed active time requires foreground interaction within 120s. Includes 13 min idle open time and 5 min backgrounded tab.',
+            ?
+          )`
+        )
+        .run(
+          `${yesterdayDate}T11:00:00.000Z`,
+          `${yesterdayDate}T11:32:00.000Z`,
+          now,
+          `${todayDate}T10:00:00.000Z`,
+          `${todayDate}T11:15:00.000Z`,
+          now
+        );
+
+      // Seed 1 supportive Wellbeing Review Case for Kasun scoped to subj-math so Admin & Math Teacher see real records
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO wellbeing_warnings (
+            id, student_id, guardian_user_id, trigger_source, rule_version_id, severity,
+            scheduled_minutes, observed_active_minutes, continuous_minutes, supportive_title,
+            guidance_summary, suggested_adjustment_json, parent_decision, parent_decision_notes,
+            parent_decided_at, notified_channels_json, linked_case_id, created_at
+          ) VALUES (
+            'WBW-SEED-001', 'usr-student-2', NULL, 'live_session', 'WBRV-G5-1', 'supportive_warning',
+            60, 57, 48, 'Friendly Break Reminder · Long Mathematics Session',
+            'Kasun studied continuously for 48 minutes without a planned rest break (above the 35-minute Grade 5 continuous focus guideline). Short 10-minute breaks help prevent fatigue.',
+            '[]', 'pending', NULL, NULL, '["in_app"]', 'WBC-SEED-001', ?
+          )`
+        )
+        .run(now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO wellbeing_cases (
+            id, student_id, student_name, student_grade, ongoing_concern_key, title, trigger_category,
+            status, priority, rule_version_id, assigned_to_user_id, assigned_to_name,
+            subject_scope_ids_json, is_safeguarding_restricted, summary_of_concern, created_at, updated_at
+          ) VALUES (
+            'WBC-SEED-001', 'usr-student-2', 'Kasun Jayasinghe', 'Grade 5',
+            'usr-student-2::continuous_load::WBR-G5-CORE',
+            'Extended Continuous Study Pacing Check · Kasun Jayasinghe',
+            'continuous_session_without_break',
+            'PENDING_REVIEW', 'medium', 'WBRV-G5-1', 'usr-teacher-1', 'Ms. Nimali Fernando',
+            '["subj-math"]', 0,
+            'Observed 48-minute continuous Mathematics exam session with 0 breaks logged against the 35-minute Grade 5 guideline.',
+            ?, ?
+          )`
+        )
+        .run(now, now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO wellbeing_case_evidence (
+            id, case_id, evidence_type, reference_id, summary, snapshot_json, attached_by_user_id, created_at
+          ) VALUES (
+            'WBE-SEED-001', 'WBC-SEED-001', 'session_activity', 'SES-ACT-KASUN-1',
+            'Observed 57 min active / 48 min continuous peak in Mathematics mock paper without breaks.',
+            '{"activeDurationSeconds":3420,"continuousPeakSeconds":2880}', 'system', ?
+          )`
+        )
+        .run(now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO wellbeing_followup_actions (
+            id, case_id, title, description, owner_user_id, owner_name, due_date, status, created_at
+          ) VALUES (
+            'WFA-SEED-001', 'WBC-SEED-001', 'Share pacing & break check-in note with guardian',
+            'Suggest splitting 60-minute Mathematics blocks into two 25-minute rounds with a 10-minute water/stretch break.',
+            'usr-teacher-1', 'Ms. Nimali Fernando', ?, 'PENDING', ?
+          )`
+        )
+        .run(new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10), now);
+    });
+
+    const fkErrors = this.db.prepare('PRAGMA foreign_key_check').all();
+    if (fkErrors.length > 0) {
+      throw new Error(`Foreign key integrity check failed after migration 8: ${JSON.stringify(fkErrors)}`);
+    }
+  }
+
+  private applyMigration9AcademicRoutineBuilderSchema(): void {
+    const now = new Date().toISOString();
+    const todayDate = now.slice(0, 10);
+    const twoWeeksLater = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+
+    this.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS question_skill_mappings (
+          id TEXT PRIMARY KEY,
+          question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+          skill_key TEXT NOT NULL CHECK (skill_key IN (
+            'recall','numerical_ability','logical_reasoning','reading_comprehension',
+            'problem_solving','spatial_reasoning','attention_to_detail','time_management','critical_thinking'
+          )),
+          classification_source TEXT NOT NULL CHECK (classification_source IN (
+            'curated_metadata','subject_curriculum_map','teacher_tag'
+          )),
+          confidence_note TEXT NOT NULL DEFAULT '',
+          educational_disclaimer TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          UNIQUE(question_id, skill_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS parent_academic_routines (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          guardian_user_id TEXT NOT NULL REFERENCES users(id),
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          workflow_status TEXT NOT NULL CHECK (workflow_status IN (
+            'DRAFT','SUBMITTED','UNDER_REVIEW','APPROVED','ACTIVE',
+            'CHANGES_REQUESTED','REJECTED','PAUSED','COMPLETED','ARCHIVED'
+          )),
+          schedule_mode TEXT NOT NULL CHECK (schedule_mode IN ('fixed','adaptive')),
+          current_version_number INTEGER NOT NULL DEFAULT 1,
+          active_version_number INTEGER,
+          linked_timetable_id TEXT REFERENCES student_timetables(id) ON DELETE SET NULL,
+          requires_re_review INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_versions (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          grade TEXT NOT NULL DEFAULT 'Grade 5',
+          start_date TEXT NOT NULL,
+          start_time_of_day TEXT NOT NULL,
+          timezone TEXT NOT NULL DEFAULT 'Asia/Colombo',
+          recurrence_type TEXT NOT NULL CHECK (recurrence_type IN ('one_time','daily','weekly','weekdays','custom')),
+          weekdays_json TEXT NOT NULL DEFAULT '[]',
+          end_date TEXT,
+          total_duration_weeks INTEGER,
+          exception_dates_json TEXT NOT NULL DEFAULT '[]',
+          mixing_method TEXT NOT NULL CHECK (mixing_method IN (
+            'single_subject','mixed_session','separate_sessions','alternating','daily_custom'
+          )),
+          question_count_per_session INTEGER NOT NULL DEFAULT 10,
+          session_duration_minutes INTEGER NOT NULL DEFAULT 30,
+          practice_ratio_percent INTEGER NOT NULL DEFAULT 75,
+          mock_frequency_days INTEGER NOT NULL DEFAULT 5,
+          exposure_preference TEXT NOT NULL DEFAULT 'weak_areas',
+          schedule_mode TEXT NOT NULL CHECK (schedule_mode IN ('fixed','adaptive')),
+          break_interval_minutes INTEGER NOT NULL DEFAULT 25,
+          break_duration_minutes INTEGER NOT NULL DEFAULT 5,
+          daily_rule_overrides_json TEXT NOT NULL DEFAULT '[]',
+          adaptive_bounds_json TEXT NOT NULL DEFAULT '{}',
+          reminder_config_json TEXT NOT NULL DEFAULT '{}',
+          excluded_question_ids_json TEXT NOT NULL DEFAULT '[]',
+          material_hash TEXT NOT NULL,
+          requires_re_review INTEGER NOT NULL DEFAULT 0,
+          change_note TEXT NOT NULL DEFAULT '',
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL,
+          UNIQUE(routine_id, version_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_subject_weights (
+          id TEXT PRIMARY KEY,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          subject_id TEXT NOT NULL REFERENCES subjects(id),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          weight_percent REAL NOT NULL,
+          topic_ids_json TEXT NOT NULL DEFAULT '[]',
+          subtopic_ids_json TEXT NOT NULL DEFAULT '[]',
+          UNIQUE(routine_version_id, subject_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_topic_weights (
+          id TEXT PRIMARY KEY,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          subject_id TEXT NOT NULL REFERENCES subjects(id),
+          topic_id TEXT NOT NULL,
+          subtopic_id TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_skill_weights (
+          id TEXT PRIMARY KEY,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          skill_key TEXT NOT NULL CHECK (skill_key IN (
+            'recall','numerical_ability','logical_reasoning','reading_comprehension',
+            'problem_solving','spatial_reasoning','attention_to_detail','time_management','critical_thinking'
+          )),
+          enabled INTEGER NOT NULL DEFAULT 1,
+          weight_percent REAL NOT NULL,
+          UNIQUE(routine_version_id, skill_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_difficulty_distributions (
+          routine_version_id TEXT PRIMARY KEY REFERENCES routine_versions(id) ON DELETE CASCADE,
+          simple_percent REAL NOT NULL DEFAULT 30,
+          moderate_percent REAL NOT NULL DEFAULT 50,
+          difficult_percent REAL NOT NULL DEFAULT 20,
+          use_empirical_calibration INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_scheduling_rules (
+          routine_version_id TEXT PRIMARY KEY REFERENCES routine_versions(id) ON DELETE CASCADE,
+          mixing_method TEXT NOT NULL,
+          recurrence_type TEXT NOT NULL,
+          break_interval_minutes INTEGER NOT NULL DEFAULT 25,
+          break_duration_minutes INTEGER NOT NULL DEFAULT 5,
+          practice_ratio_percent INTEGER NOT NULL DEFAULT 75,
+          mock_frequency_days INTEGER NOT NULL DEFAULT 5,
+          exposure_preference TEXT NOT NULL DEFAULT 'weak_areas'
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_review_assignments (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          reviewer_user_id TEXT NOT NULL REFERENCES users(id),
+          reviewer_name TEXT NOT NULL,
+          reviewer_role TEXT NOT NULL CHECK (reviewer_role IN ('teacher','admin')),
+          subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          status TEXT NOT NULL CHECK (status IN ('PENDING','IN_PROGRESS','APPROVED','CHANGES_REQUESTED','REJECTED')),
+          assigned_at TEXT NOT NULL,
+          completed_at TEXT,
+          UNIQUE(routine_version_id, reviewer_user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_teacher_evaluations (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          teacher_user_id TEXT NOT NULL REFERENCES users(id),
+          teacher_name TEXT NOT NULL,
+          scoped_subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          subject_component_decisions_json TEXT NOT NULL DEFAULT '{}',
+          decision TEXT NOT NULL CHECK (decision IN ('approved_components','recommend_changes','comment_only')),
+          topic_suitability_note TEXT NOT NULL DEFAULT '',
+          difficulty_suitability_note TEXT NOT NULL DEFAULT '',
+          skill_balance_note TEXT NOT NULL DEFAULT '',
+          evidence_comparison_note TEXT NOT NULL DEFAULT '',
+          general_comment TEXT NOT NULL DEFAULT '',
+          recommended_changes_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_admin_evaluations (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          admin_user_id TEXT NOT NULL REFERENCES users(id),
+          admin_name TEXT NOT NULL,
+          decision TEXT NOT NULL CHECK (decision IN ('approved','changes_requested','rejected','comment_only')),
+          overall_balance_note TEXT NOT NULL DEFAULT '',
+          wellbeing_review_note TEXT NOT NULL DEFAULT '',
+          coordination_summary TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_change_requests (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          requested_by_user_id TEXT NOT NULL REFERENCES users(id),
+          requested_by_name TEXT NOT NULL,
+          requested_by_role TEXT NOT NULL CHECK (requested_by_role IN ('teacher','admin')),
+          subject_id TEXT,
+          category TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          suggested_change_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL CHECK (status IN ('OPEN','ADDRESSED','DISMISSED')),
+          resolved_at TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_approval_history (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          actor_id TEXT NOT NULL,
+          actor_name TEXT NOT NULL,
+          actor_role TEXT NOT NULL,
+          from_status TEXT,
+          to_status TEXT NOT NULL,
+          action TEXT NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_adaptive_adjustments (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_id TEXT NOT NULL REFERENCES routine_versions(id) ON DELETE CASCADE,
+          triggered_at TEXT NOT NULL,
+          reason_summary TEXT NOT NULL,
+          adjustment_type TEXT NOT NULL,
+          within_parent_bounds INTEGER NOT NULL DEFAULT 1,
+          status TEXT NOT NULL CHECK (status IN ('APPLIED','PENDING_PARENT_APPROVAL','APPROVED','REJECTED')),
+          proposed_changes_json TEXT NOT NULL DEFAULT '{}',
+          constraints_preserved_note TEXT NOT NULL DEFAULT '',
+          parent_approved_by_user_id TEXT,
+          resolved_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS routine_performance_summaries (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL REFERENCES parent_academic_routines(id) ON DELETE CASCADE,
+          routine_version_number INTEGER NOT NULL,
+          summary_json TEXT NOT NULL,
+          generated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_qsm_question ON question_skill_mappings(question_id);
+        CREATE INDEX IF NOT EXISTS idx_qsm_skill ON question_skill_mappings(skill_key);
+        CREATE INDEX IF NOT EXISTS idx_par_routine_student ON parent_academic_routines(student_id, workflow_status);
+        CREATE INDEX IF NOT EXISTS idx_par_routine_guardian ON parent_academic_routines(guardian_user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_rver_routine ON routine_versions(routine_id, version_number DESC);
+        CREATE INDEX IF NOT EXISTS idx_rra_reviewer ON routine_review_assignments(reviewer_user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_rcr_routine ON routine_change_requests(routine_id, status);
+        CREATE INDEX IF NOT EXISTS idx_raa_routine ON routine_adaptive_adjustments(routine_id, status);
+      `);
+
+      // Add non-duplicating linkage columns to existing timetable tables
+      const ttCols = (
+        this.db.prepare('PRAGMA table_info(student_timetables)').all() as { name: string }[]
+      ).map((c) => c.name);
+      if (!ttCols.includes('source_routine_id')) {
+        this.db.exec('ALTER TABLE student_timetables ADD COLUMN source_routine_id TEXT;');
+      }
+      if (!ttCols.includes('source_routine_version_id')) {
+        this.db.exec('ALTER TABLE student_timetables ADD COLUMN source_routine_version_id TEXT;');
+      }
+
+      const ssCols = (
+        this.db.prepare('PRAGMA table_info(scheduled_sessions)').all() as { name: string }[]
+      ).map((c) => c.name);
+      if (!ssCols.includes('source_routine_id')) {
+        this.db.exec('ALTER TABLE scheduled_sessions ADD COLUMN source_routine_id TEXT;');
+      }
+      if (!ssCols.includes('source_routine_version_id')) {
+        this.db.exec('ALTER TABLE scheduled_sessions ADD COLUMN source_routine_version_id TEXT;');
+      }
+      if (!ssCols.includes('routine_metadata_json')) {
+        this.db.exec("ALTER TABLE scheduled_sessions ADD COLUMN routine_metadata_json TEXT NOT NULL DEFAULT '{}';");
+      }
+
+      // Seed deterministic multi-skill mappings for all existing questions
+      const qRows = this.db.prepare('SELECT * FROM questions').all() as Record<string, unknown>[];
+      const insSkill = this.db.prepare(
+        `INSERT OR IGNORE INTO question_skill_mappings (
+          id, question_id, skill_key, classification_source, confidence_note, educational_disclaimer, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const r of qRows) {
+        const attrs = JSON.parse(String(r.attributes_json || '{}'));
+        const qItem: QuizItem = {
+          id: String(r.id),
+          source: 'curated',
+          subjectId: String(r.subject_id),
+          topicId: String(r.topic_id),
+          subtopicId: String(r.subtopic_id),
+          cognitiveSkill: String(r.cognitive_skill || 'Application'),
+          learningObjectives: String(r.learning_objectives || ''),
+          questionSi: String(r.question_si || ''),
+          questionEn: String(r.question_en || ''),
+          options: ['', '', '', ''],
+          correctIndex: 0,
+          memoryTrickTitle: '',
+          memoryTrickBody: '',
+          explanation: '',
+          attributes: attrs,
+          createdAt: String(r.created_at || now),
+        };
+        const skills = mapQuestionToDefaultSkills(qItem);
+        skills.forEach((sk, idx) => {
+          insSkill.run(
+            `QSM-${String(r.id)}-${idx + 1}`,
+            String(r.id),
+            sk,
+            String(r.source) === 'curated' ? 'curated_metadata' : 'subject_curriculum_map',
+            'Derived from curriculum subject taxonomy and question cognitive metadata.',
+            EDUCATIONAL_SKILL_DISCLAIMER,
+            now
+          );
+        });
+      }
+
+      // Seed 1 comprehensive parent routine for Sayuri (usr-student-1) under review by teachers & admin
+      const seedRoutineId = 'RTN-SEED-001';
+      const seedVerId = 'RTNV-SEED-001-1';
+      const seedSubjectWeights = [
+        { subjectId: 'subj-math', enabled: true, weightPercent: 40, topicIds: ['top-math-money', 'top-math-time'], subtopicIds: [] },
+        { subjectId: 'subj-logic', enabled: true, weightPercent: 30, topicIds: ['top-logic-seq', 'top-logic-rank'], subtopicIds: [] },
+        { subjectId: 'subj-sinhala', enabled: true, weightPercent: 30, topicIds: ['top-sin-grammar'], subtopicIds: [] },
+      ];
+      const seedSkillWeights = [
+        { skillKey: 'problem_solving' as const, enabled: true, weightPercent: 40, isEducationalCategory: true as const },
+        { skillKey: 'logical_reasoning' as const, enabled: true, weightPercent: 30, isEducationalCategory: true as const },
+        { skillKey: 'reading_comprehension' as const, enabled: true, weightPercent: 30, isEducationalCategory: true as const },
+      ];
+      const seedDiff = { simple: 30, moderate: 50, difficult: 20, useEmpiricalCalibration: true };
+      const seedHash = computeMaterialHash({
+        studentId: 'usr-student-1',
+        title: 'Weekday Math, Logic & Sinhala Balance Routine',
+        description: 'Structured 30-minute bilingual study blocks with 10-minute rest guidance.',
+        grade: 'Grade 5',
+        startDate: todayDate,
+        startTimeOfDay: '17:00',
+        timezone: 'Asia/Colombo',
+        recurrenceType: 'weekdays',
+        weekdays: [1, 2, 3, 4, 5],
+        endDate: twoWeeksLater,
+        mixingMethod: 'mixed_session',
+        subjectWeights: seedSubjectWeights,
+        skillWeights: seedSkillWeights,
+        difficultyDistribution: seedDiff,
+        questionCountPerSession: 6,
+        sessionDurationMinutes: 30,
+        practiceRatioPercent: 80,
+        mockFrequencyDays: 5,
+        exposurePreference: 'weak_areas',
+        scheduleMode: 'adaptive',
+        breakIntervalMinutes: 25,
+        breakDurationMinutes: 10,
+      });
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO parent_academic_routines (
+            id, student_id, guardian_user_id, title, description, workflow_status, schedule_mode,
+            current_version_number, active_version_number, linked_timetable_id, requires_re_review,
+            created_at, updated_at
+          ) VALUES (?, 'usr-student-1', 'usr-parent-1', ?, ?, 'UNDER_REVIEW', 'adaptive', 1, NULL, NULL, 0, ?, ?)`
+        )
+        .run(
+          seedRoutineId,
+          'Weekday Math, Logic & Sinhala Balance Routine',
+          'Structured 30-minute bilingual study blocks focusing on word problems, sequences, and Sinhala grammar.',
+          now,
+          now
+        );
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routine_versions (
+            id, routine_id, version_number, title, description, grade, start_date, start_time_of_day,
+            timezone, recurrence_type, weekdays_json, end_date, total_duration_weeks, exception_dates_json,
+            mixing_method, question_count_per_session, session_duration_minutes, practice_ratio_percent,
+            mock_frequency_days, exposure_preference, schedule_mode, break_interval_minutes, break_duration_minutes,
+            daily_rule_overrides_json, adaptive_bounds_json, reminder_config_json, excluded_question_ids_json,
+            material_hash, requires_re_review, change_note, created_by_user_id, created_at
+          ) VALUES (?, ?, 1, ?, ?, 'Grade 5', ?, '17:00', 'Asia/Colombo', 'weekdays', '[1,2,3,4,5]', ?, 2, '[]',
+            'mixed_session', 6, 30, 80, 5, 'weak_areas', 'adaptive', 25, 10,
+            '[]', ?, ?, '[]', ?, 0, 'Initial parent submission for teacher & admin evaluation', 'usr-parent-1', ?)`
+        )
+        .run(
+          seedVerId,
+          seedRoutineId,
+          'Weekday Math, Logic & Sinhala Balance Routine',
+          'Structured 30-minute bilingual study blocks focusing on word problems, sequences, and Sinhala grammar.',
+          todayDate,
+          twoWeeksLater,
+          JSON.stringify({
+            maxDailyShiftMinutes: 10,
+            maxDifficultyShiftPercent: 15,
+            maxSubjectWeightShiftPercent: 15,
+            allowQuestionSubstitution: true,
+            notifyParentOnAdjustment: true,
+            requireApprovalOutsideBounds: true,
+          }),
+          JSON.stringify({
+            enabled: true,
+            leadTimesMinutes: [60, 15],
+            channels: { inApp: true, email: true, whatsapp: true },
+          }),
+          seedHash,
+          now
+        );
+
+      for (const sw of seedSubjectWeights) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO routine_subject_weights (
+              id, routine_version_id, subject_id, enabled, weight_percent, topic_ids_json, subtopic_ids_json
+            ) VALUES (?, ?, ?, 1, ?, ?, '[]')`
+          )
+          .run(`RSW-${seedVerId}-${sw.subjectId}`, seedVerId, sw.subjectId, sw.weightPercent, JSON.stringify(sw.topicIds));
+      }
+
+      for (const sk of seedSkillWeights) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO routine_skill_weights (
+              id, routine_version_id, skill_key, enabled, weight_percent
+            ) VALUES (?, ?, ?, 1, ?)`
+          )
+          .run(`RSKW-${seedVerId}-${sk.skillKey}`, seedVerId, sk.skillKey, sk.weightPercent);
+      }
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routine_difficulty_distributions (
+            routine_version_id, simple_percent, moderate_percent, difficult_percent, use_empirical_calibration
+          ) VALUES (?, 30, 50, 20, 1)`
+        )
+        .run(seedVerId);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routine_scheduling_rules (
+            routine_version_id, mixing_method, recurrence_type, break_interval_minutes,
+            break_duration_minutes, practice_ratio_percent, mock_frequency_days, exposure_preference
+          ) VALUES (?, 'mixed_session', 'weekdays', 25, 10, 80, 5, 'weak_areas')`
+        )
+        .run(seedVerId);
+
+      // Assign both subject teachers & admin to review this seeded routine
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routine_review_assignments (
+            id, routine_id, routine_version_id, reviewer_user_id, reviewer_name, reviewer_role,
+            subject_ids_json, status, assigned_at
+          ) VALUES
+          ('RRA-SEED-1', ?, ?, 'usr-teacher-1', 'Ms. Nimali Fernando', 'teacher', '["subj-math","subj-logic"]', 'PENDING', ?),
+          ('RRA-SEED-2', ?, ?, 'usr-teacher-2', 'Mr. Suren Kumar', 'teacher', '["subj-sinhala"]', 'PENDING', ?),
+          ('RRA-SEED-3', ?, ?, 'usr-admin-1', 'Kavinda Wickramasinghe', 'admin', '["subj-math","subj-logic","subj-sinhala"]', 'PENDING', ?)`
+        )
+        .run(seedRoutineId, seedVerId, now, seedRoutineId, seedVerId, now, seedRoutineId, seedVerId, now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routine_approval_history (
+            id, routine_id, routine_version_id, actor_id, actor_name, actor_role,
+            from_status, to_status, action, note, created_at
+          ) VALUES
+          ('RAH-SEED-1', ?, ?, 'usr-parent-1', 'Mrs. Ruwani Perera', 'parent', 'DRAFT', 'SUBMITTED', 'ROUTINE_SUBMITTED', 'Submitted balanced weekday practice routine for staff review.', ?),
+          ('RAH-SEED-2', ?, ?, 'system', 'Workflow Router', 'system', 'SUBMITTED', 'UNDER_REVIEW', 'REVIEWERS_ASSIGNED', 'Routed Math & Logic to Ms. Nimali Fernando, Sinhala to Mr. Suren Kumar, and cross-subject balance to Admin.', ?)`
+        )
+        .run(seedRoutineId, seedVerId, now, seedRoutineId, seedVerId, now);
+    });
+
+    const fkErrors = this.db.prepare('PRAGMA foreign_key_check').all();
+    if (fkErrors.length > 0) {
+      throw new Error(`Foreign key integrity check failed after migration 9: ${JSON.stringify(fkErrors)}`);
+    }
+  }
+
+  private applyMigration10GamifiedRoadmapsSchema(): void {
+    const now = new Date().toISOString();
+
+    this.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS reward_definitions (
+          id TEXT PRIMARY KEY,
+          code TEXT NOT NULL UNIQUE,
+          reward_type TEXT NOT NULL CHECK (reward_type IN (
+            'xp','stars','badge','coins','avatar_cosmetic','stage_trophy','mastery_achievement'
+          )),
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          icon_key TEXT NOT NULL,
+          cosmetic_preview_json TEXT NOT NULL DEFAULT '{}',
+          milestone_rule_text TEXT NOT NULL DEFAULT '',
+          active INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS game_roadmaps (
+          id TEXT PRIMARY KEY,
+          slug TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          grade TEXT NOT NULL DEFAULT 'Grade 5',
+          scope_type TEXT NOT NULL CHECK (scope_type IN ('subject','mixed')),
+          subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          theme_key TEXT NOT NULL DEFAULT 'island_quest',
+          banner_image_url TEXT,
+          status TEXT NOT NULL CHECK (status IN ('DRAFT','PENDING_REVIEW','APPROVED','PUBLISHED','ARCHIVED')),
+          current_version INTEGER NOT NULL DEFAULT 1,
+          growth_formula_json TEXT NOT NULL DEFAULT '{}',
+          wellbeing_max_session_minutes INTEGER NOT NULL DEFAULT 30,
+          creator_user_id TEXT NOT NULL REFERENCES users(id),
+          creator_name TEXT NOT NULL,
+          creator_role TEXT NOT NULL,
+          approved_by_user_id TEXT,
+          approved_at TEXT,
+          published_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS roadmap_versions (
+          id TEXT PRIMARY KEY,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          growth_formula_json TEXT NOT NULL DEFAULT '{}',
+          wellbeing_max_session_minutes INTEGER NOT NULL DEFAULT 30,
+          change_note TEXT NOT NULL DEFAULT '',
+          created_by_user_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          UNIQUE(roadmap_id, version_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS roadmap_stages (
+          id TEXT PRIMARY KEY,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          sort_order INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          theme_color TEXT NOT NULL DEFAULT '#158EE3',
+          milestone_reward_badge_id TEXT REFERENCES reward_definitions(id),
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS roadmap_levels (
+          id TEXT PRIMARY KEY,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          stage_id TEXT NOT NULL REFERENCES roadmap_stages(id) ON DELETE CASCADE,
+          sequence_order INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          academic_objectives_json TEXT NOT NULL DEFAULT '[]',
+          subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          topic_ids_json TEXT NOT NULL DEFAULT '[]',
+          subtopic_ids_json TEXT NOT NULL DEFAULT '[]',
+          target_question_count INTEGER NOT NULL DEFAULT 4,
+          max_question_count INTEGER NOT NULL DEFAULT 20,
+          difficulty_distribution_json TEXT NOT NULL DEFAULT '{}',
+          min_mastery_accuracy_percent INTEGER NOT NULL DEFAULT 60,
+          required_missions_count INTEGER NOT NULL DEFAULT 1,
+          has_checkpoint INTEGER NOT NULL DEFAULT 0,
+          special_unlock_note TEXT,
+          xp_reward INTEGER NOT NULL DEFAULT 40,
+          stars_reward INTEGER NOT NULL DEFAULT 3,
+          coins_reward INTEGER NOT NULL DEFAULT 15,
+          unlock_cosmetic_id TEXT REFERENCES reward_definitions(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS roadmap_level_prerequisites (
+          id TEXT PRIMARY KEY,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          prerequisite_level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          UNIQUE(level_id, prerequisite_level_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS roadmap_missions (
+          id TEXT PRIMARY KEY,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          version_number INTEGER NOT NULL,
+          level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          sort_order INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          mission_type TEXT NOT NULL CHECK (mission_type IN (
+            'standard','topic_practice','mixed_topic','puzzle','timed_challenge',
+            'revision','mastery_checkpoint','remedial','final_stage_challenge'
+          )),
+          subject_ids_json TEXT NOT NULL DEFAULT '[]',
+          topic_ids_json TEXT NOT NULL DEFAULT '[]',
+          subtopic_ids_json TEXT NOT NULL DEFAULT '[]',
+          question_count INTEGER NOT NULL DEFAULT 4,
+          difficulty_distribution_json TEXT NOT NULL DEFAULT '{}',
+          time_limit_seconds INTEGER,
+          is_required INTEGER NOT NULL DEFAULT 1,
+          is_remedial INTEGER NOT NULL DEFAULT 0,
+          min_pass_accuracy_percent INTEGER NOT NULL DEFAULT 60,
+          xp_reward INTEGER NOT NULL DEFAULT 25,
+          stars_reward INTEGER NOT NULL DEFAULT 2,
+          coins_reward INTEGER NOT NULL DEFAULT 10
+        );
+
+        CREATE TABLE IF NOT EXISTS roadmap_mission_configs (
+          mission_id TEXT PRIMARY KEY REFERENCES roadmap_missions(id) ON DELETE CASCADE,
+          selection_rules_json TEXT NOT NULL DEFAULT '{}',
+          puzzle_hint_mode INTEGER NOT NULL DEFAULT 0,
+          allow_retry INTEGER NOT NULL DEFAULT 1,
+          max_attempts_per_day INTEGER NOT NULL DEFAULT 6
+        );
+
+        CREATE TABLE IF NOT EXISTS student_roadmap_enrollments (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          enrolled_at TEXT NOT NULL,
+          current_level_id TEXT,
+          status TEXT NOT NULL CHECK (status IN ('ACTIVE','COMPLETED','PAUSED')),
+          adaptive_remediation_enabled INTEGER NOT NULL DEFAULT 1,
+          UNIQUE(student_id, roadmap_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS student_level_progress (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          status TEXT NOT NULL CHECK (status IN ('LOCKED','AVAILABLE','ACTIVE','COMPLETED')),
+          best_accuracy_percent REAL NOT NULL DEFAULT 0,
+          missions_completed_count INTEGER NOT NULL DEFAULT 0,
+          checkpoint_passed INTEGER NOT NULL DEFAULT 0,
+          objectives_covered_json TEXT NOT NULL DEFAULT '[]',
+          unlocked_at TEXT,
+          completed_at TEXT,
+          updated_at TEXT NOT NULL,
+          UNIQUE(student_id, level_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS mission_attempts (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          mission_id TEXT NOT NULL REFERENCES roadmap_missions(id) ON DELETE CASCADE,
+          assessment_attempt_id TEXT,
+          question_snapshot_ids_json TEXT NOT NULL DEFAULT '[]',
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          observed_active_seconds INTEGER NOT NULL DEFAULT 0,
+          total_questions INTEGER NOT NULL DEFAULT 0,
+          correct_count INTEGER NOT NULL DEFAULT 0,
+          accuracy_percent REAL,
+          mastery_passed INTEGER NOT NULL DEFAULT 0,
+          reward_granted INTEGER NOT NULL DEFAULT 0,
+          idempotency_key TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS level_unlock_events (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          unlocked_by TEXT NOT NULL CHECK (unlocked_by IN ('initial','prerequisite','completion','admin_override')),
+          trigger_mission_attempt_id TEXT,
+          rationale TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS student_reward_transactions (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          roadmap_id TEXT,
+          level_id TEXT,
+          mission_attempt_id TEXT,
+          reward_type TEXT NOT NULL,
+          reward_def_id TEXT REFERENCES reward_definitions(id),
+          amount INTEGER NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS student_unlocked_rewards (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          reward_def_id TEXT NOT NULL REFERENCES reward_definitions(id) ON DELETE CASCADE,
+          earned_via_transaction_id TEXT,
+          equipped INTEGER NOT NULL DEFAULT 0,
+          unlocked_at TEXT NOT NULL,
+          UNIQUE(student_id, reward_def_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS mastery_checkpoint_results (
+          id TEXT PRIMARY KEY,
+          student_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          roadmap_id TEXT NOT NULL REFERENCES game_roadmaps(id) ON DELETE CASCADE,
+          level_id TEXT NOT NULL REFERENCES roadmap_levels(id) ON DELETE CASCADE,
+          mission_attempt_id TEXT NOT NULL REFERENCES mission_attempts(id) ON DELETE CASCADE,
+          accuracy_percent REAL NOT NULL,
+          passed INTEGER NOT NULL,
+          weak_topic_ids_json TEXT NOT NULL DEFAULT '[]',
+          remediation_recommended INTEGER NOT NULL DEFAULT 0,
+          feedback_note TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS gamification_audit_events (
+          id TEXT PRIMARY KEY,
+          student_id TEXT,
+          roadmap_id TEXT,
+          actor_id TEXT NOT NULL,
+          actor_role TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          details_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rmap_status ON game_roadmaps(status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_rstage_roadmap ON roadmap_stages(roadmap_id, sort_order);
+        CREATE INDEX IF NOT EXISTS idx_rlevel_stage ON roadmap_levels(roadmap_id, stage_id, sequence_order);
+        CREATE INDEX IF NOT EXISTS idx_rmiss_level ON roadmap_missions(level_id, sort_order);
+        CREATE INDEX IF NOT EXISTS idx_slp_student ON student_level_progress(student_id, roadmap_id, status);
+        CREATE INDEX IF NOT EXISTS idx_ma_student ON mission_attempts(student_id, mission_id, completed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_srt_student ON student_reward_transactions(student_id, created_at DESC);
+      `);
+
+      // Link columns on existing scheduled_sessions for timetable mission scheduling
+      const ssCols = (
+        this.db.prepare('PRAGMA table_info(scheduled_sessions)').all() as { name: string }[]
+      ).map((c) => c.name);
+      if (!ssCols.includes('source_roadmap_id')) {
+        this.db.exec('ALTER TABLE scheduled_sessions ADD COLUMN source_roadmap_id TEXT;');
+      }
+      if (!ssCols.includes('source_level_id')) {
+        this.db.exec('ALTER TABLE scheduled_sessions ADD COLUMN source_level_id TEXT;');
+      }
+      if (!ssCols.includes('source_mission_id')) {
+        this.db.exec('ALTER TABLE scheduled_sessions ADD COLUMN source_mission_id TEXT;');
+      }
+
+      // Seed age-appropriate educational rewards & cosmetics (no gambling/pay-to-win)
+      const insRew = this.db.prepare(
+        `INSERT OR IGNORE INTO reward_definitions (
+          id, code, reward_type, title, description, icon_key, cosmetic_preview_json, milestone_rule_text, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`
+      );
+      const rewardSeeds = [
+        ['RWD-LOTUS-CREST', 'lotus_crest', 'avatar_cosmetic', 'Lotus Scholar Crest', 'Unlocked upon completing Stage 1 of Scholarship Explorer Quest.', 'lotus', '{"slot":"avatar_frame","accentHex":"#158EE3"}', 'Complete Stage 1 Foundation Trails'],
+        ['RWD-OWL-COMPANION', 'wisdom_owl', 'avatar_cosmetic', 'Wisdom Owl Companion', 'Earned by passing a Mastery Checkpoint with balanced accuracy.', 'owl', '{"slot":"companion","accentHex":"#F59E0B"}', 'Master Stage 2 Challenge Checkpoint'],
+        ['RWD-MATH-BADGE', 'math_explorer', 'badge', 'Math Explorer Badge', 'Awarded for mastering Level 1 & Level 2 Mathematics missions.', 'compass', '{"slot":"crest","accentHex":"#059669"}', 'Complete Math Quest Stage 1'],
+        ['RWD-BALANCED-SHIELD', 'balanced_learner', 'mastery_achievement', 'Balanced Study Shield', 'Celebrates steady practice while honouring healthy break intervals.', 'shield', '{"slot":"crest","accentHex":"#6D28D9"}', 'Complete any quest mission respecting rest balance'],
+        ['RWD-ISLAND-TROPHY', 'island_trophy', 'stage_trophy', 'Island Mastery Trophy', 'Earned upon completing the Final Stage Challenge of Scholarship Quest.', 'trophy', '{"slot":"crest","accentHex":"#D97706"}', 'Complete Island Mastery Summit'],
+      ];
+      for (const rs of rewardSeeds) {
+        insRew.run(rs[0], rs[1], rs[2], rs[3], rs[4], rs[5], rs[6], rs[7]);
+      }
+
+      // Seed Roadmap 1: Published Mixed-Subject Grade 5 Scholarship Explorer Quest (2 Stages, 4 Levels)
+      const rm1 = 'RMAP-SCHOLAR-ADVENTURE';
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO game_roadmaps (
+            id, slug, name, description, grade, scope_type, subject_ids_json, theme_key,
+            banner_image_url, status, current_version, growth_formula_json, wellbeing_max_session_minutes,
+            creator_user_id, creator_name, creator_role, approved_by_user_id, approved_at, published_at, created_at, updated_at
+          ) VALUES (
+            ?, 'scholarship-explorer-quest', 'Grade 5 Scholarship Explorer Quest',
+            'Progressive multi-subject learning island moving from foundational basics to multi-step logic and final challenges.',
+            'Grade 5', 'mixed', '["subj-math","subj-logic","subj-spatial","subj-sinhala","subj-env","subj-english"]',
+            'island_quest', NULL, 'PUBLISHED', 1,
+            '{"baseQuestionCount":3,"incrementPerLevel":1,"maxQuestionCount":12,"maxQuestionsPerMission":4,"maxSessionDurationMinutes":25}',
+            25, 'usr-admin-1', 'Kavinda Wickramasinghe', 'admin', 'usr-admin-1', ?, ?, ?, ?
+          )`
+        )
+        .run(rm1, now, now, now, now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO roadmap_versions (
+            id, roadmap_id, version_number, title, description, growth_formula_json,
+            wellbeing_max_session_minutes, change_note, created_by_user_id, created_at
+          ) VALUES (
+            'RMV-SCHOLAR-1', ?, 1, 'Grade 5 Scholarship Explorer Quest',
+            'Initial published progressive 2-stage adventure roadmap.',
+            '{"baseQuestionCount":3,"incrementPerLevel":1,"maxQuestionCount":12,"maxQuestionsPerMission":4,"maxSessionDurationMinutes":25}',
+            25, 'Initial published roadmap version', 'usr-admin-1', ?
+          )`
+        )
+        .run(rm1, now);
+
+      // Stages for Roadmap 1
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO roadmap_stages (
+            id, roadmap_id, version_number, sort_order, title, description, theme_color, milestone_reward_badge_id, created_at
+          ) VALUES
+          ('RSTG-1', ?, 1, 1, 'Stage 1: Foundation Trails', 'Warm-up fluency in time conversion, square perimeters, directions, and heritage recall.', '#158EE3', 'RWD-LOTUS-CREST', ?),
+          ('RSTG-2', ?, 1, 2, 'Stage 2: Reasoning Peaks', 'Multi-step word stories, number cycles, Sinhala particles, and mastery checkpoints.', '#059669', 'RWD-ISLAND-TROPHY', ?)`
+        )
+        .run(rm1, now, rm1, now);
+
+      // 4 Progressive Levels for Roadmap 1 (increasing question count 3 -> 4 -> 5 -> 6 & difficulty)
+      const insLvl = this.db.prepare(
+        `INSERT OR IGNORE INTO roadmap_levels (
+          id, roadmap_id, version_number, stage_id, sequence_order, title, description,
+          academic_objectives_json, subject_ids_json, topic_ids_json, subtopic_ids_json,
+          target_question_count, max_question_count, difficulty_distribution_json,
+          min_mastery_accuracy_percent, required_missions_count, has_checkpoint,
+          xp_reward, stars_reward, coins_reward, unlock_cosmetic_id
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, '[]', ?, 12, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insLvl.run(
+        'RLVL-1', rm1, 'RSTG-1', 1, 'Level 1: Base Camp Basics',
+        'Build confidence with core time conversions, shapes, and English compass vocabulary.',
+        '["Convert hours to minutes","Calculate square perimeter","Identify cardinal directions"]',
+        '["subj-math","subj-spatial","subj-english"]', '["top-math-time","top-spa-perim","top-eng-comp"]',
+        3, '{"Simple":100,"Moderate":0,"Challenging":0,"Master":0}', 60, 1, 0, 40, 3, 15, null
+      );
+      insLvl.run(
+        'RLVL-2', rm1, 'RSTG-1', 2, 'Level 2: Heritage & Pattern Bridge',
+        'Combine number cycles, Sri Lankan heritage facts, and balanced shopping/bus word stories.',
+        '["Spot repeating 3-number patterns","Recall key Matale heritage locations","Solve net change stories"]',
+        '["subj-logic","subj-env","subj-math"]', '["top-logic-seq","top-env-srilanka","top-math-money"]',
+        4, '{"Simple":25,"Moderate":75,"Challenging":0,"Master":0}', 65, 1, 1, 55, 4, 20, 'RWD-LOTUS-CREST'
+      );
+      insLvl.run(
+        'RLVL-3', rm1, 'RSTG-2', 3, 'Level 3: Reasoning Canyon',
+        'Step up into Sinhala grammar particles and mixed bilingual application.',
+        '["Identify connecting particles","Synthesize logic patterns and arithmetic"]',
+        '["subj-sinhala","subj-math","subj-logic"]', '["top-sin-grammar","top-math-money","top-logic-seq"]',
+        5, '{"Simple":20,"Moderate":50,"Challenging":30,"Master":0}', 70, 2, 0, 70, 5, 25, null
+      );
+      insLvl.run(
+        'RLVL-4', rm1, 'RSTG-2', 4, 'Level 4: Island Mastery Summit',
+        'Complete the mixed Grade 5 mastery checkpoint including queue overlap logic.',
+        '["Solve overlap queue reasoning","Demonstrate balanced cross-subject mastery"]',
+        '["subj-logic","subj-math","subj-sinhala","subj-env","subj-spatial","subj-english"]',
+        '["top-logic-rank","top-math-money","top-sin-grammar","top-env-srilanka"]',
+        6, '{"Simple":15,"Moderate":45,"Challenging":20,"Master":20}', 70, 1, 1, 100, 6, 40, 'RWD-OWL-COMPANION'
+      );
+
+      // Prerequisites chain: L2->L1, L3->L2, L4->L3
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO roadmap_level_prerequisites (id, roadmap_id, version_number, level_id, prerequisite_level_id) VALUES
+          ('RLP-1', ?, 1, 'RLVL-2', 'RLVL-1'),
+          ('RLP-2', ?, 1, 'RLVL-3', 'RLVL-2'),
+          ('RLP-3', ?, 1, 'RLVL-4', 'RLVL-3')`
+        )
+        .run(rm1, rm1, rm1);
+
+      // Missions for Roadmap 1
+      const insMiss = this.db.prepare(
+        `INSERT OR IGNORE INTO roadmap_missions (
+          id, roadmap_id, version_number, level_id, sort_order, title, description, mission_type,
+          subject_ids_json, topic_ids_json, subtopic_ids_json, question_count, difficulty_distribution_json,
+          time_limit_seconds, is_required, is_remedial, min_pass_accuracy_percent, xp_reward, stars_reward, coins_reward
+        ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insMiss.run(
+        'RMIS-1', rm1, 'RLVL-1', 1, 'Morning Warm-Up Trail',
+        'Solve 3 foundational questions across Math, Spatial Shapes, and Directions.', 'mixed_topic',
+        '["subj-math","subj-spatial","subj-english"]', '["top-math-time","top-spa-perim","top-eng-comp"]',
+        3, '{"Simple":100,"Moderate":0,"Challenging":0,"Master":0}', null, 1, 0, 60, 30, 2, 10
+      );
+      insMiss.run(
+        'RMIS-2', rm1, 'RLVL-2', 1, 'Bridge Pattern Puzzle',
+        'Decode repeating sequence beats and Matale geography.', 'puzzle',
+        '["subj-logic","subj-env"]', '["top-logic-seq","top-env-srilanka"]',
+        2, '{"Simple":0,"Moderate":100,"Challenging":0,"Master":0}', null, 1, 0, 60, 30, 2, 12
+      );
+      insMiss.run(
+        'RMIS-3', rm1, 'RLVL-2', 2, 'Stage 1 Mastery Checkpoint',
+        'Confirm steady mastery across Stage 1 before entering Reasoning Peaks.', 'mastery_checkpoint',
+        '["subj-math","subj-logic","subj-env"]', '["top-math-money","top-logic-seq","top-env-srilanka"]',
+        3, '{"Simple":34,"Moderate":66,"Challenging":0,"Master":0}', 300, 1, 0, 65, 45, 3, 18
+      );
+      insMiss.run(
+        'RMIS-4', rm1, 'RLVL-3', 1, 'Bilingual Story & Logic Sprint',
+        'Practice connecting Sinhala particles alongside rhythmic logic.', 'topic_practice',
+        '["subj-sinhala","subj-logic"]', '["top-sin-grammar","top-logic-seq"]',
+        3, '{"Simple":0,"Moderate":50,"Challenging":50,"Master":0}', null, 1, 0, 65, 35, 3, 15
+      );
+      insMiss.run(
+        'RMIS-5', rm1, 'RLVL-3', 2, 'Quick Timed Boost',
+        'Calm 4-minute timed puzzle round to build steady pacing.', 'timed_challenge',
+        '["subj-math","subj-sinhala"]', '["top-math-money","top-sin-grammar"]',
+        2, '{"Simple":0,"Moderate":50,"Challenging":50,"Master":0}', 240, 1, 0, 65, 40, 3, 18
+      );
+      insMiss.run(
+        'RMIS-6', rm1, 'RLVL-4', 1, 'Island Mastery Final Challenge',
+        'Mixed challenge spanning foundational skills through queue overlap reasoning.', 'final_stage_challenge',
+        '["subj-logic","subj-math","subj-sinhala","subj-env","subj-spatial","subj-english"]', '[]',
+        6, '{"Simple":15,"Moderate":45,"Challenging":20,"Master":20}', 420, 1, 0, 70, 80, 5, 30
+      );
+
+      // Seed Roadmap 2: Subject-Scoped Math Quest created by Math Teacher (usr-teacher-1) & Published
+      const rm2 = 'RMAP-MATH-MASTERY';
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO game_roadmaps (
+            id, slug, name, description, grade, scope_type, subject_ids_json, theme_key,
+            banner_image_url, status, current_version, growth_formula_json, wellbeing_max_session_minutes,
+            creator_user_id, creator_name, creator_role, approved_by_user_id, approved_at, published_at, created_at, updated_at
+          ) VALUES (
+            ?, 'math-word-problem-quest', 'Mathematics & Time Mastery Quest',
+            'Focused Grade 5 Mathematics roadmap progressing from clock conversions to multi-step word stories.',
+            'Grade 5', 'subject', '["subj-math"]', 'math_compass', NULL, 'PUBLISHED', 1,
+            '{"baseQuestionCount":1,"incrementPerLevel":1,"maxQuestionCount":6,"maxQuestionsPerMission":3,"maxSessionDurationMinutes":20}',
+            20, 'usr-teacher-1', 'Ms. Nimali Fernando', 'teacher', 'usr-admin-1', ?, ?, ?, ?
+          )`
+        )
+        .run(rm2, now, now, now, now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO roadmap_versions (
+            id, roadmap_id, version_number, title, description, growth_formula_json,
+            wellbeing_max_session_minutes, change_note, created_by_user_id, created_at
+          ) VALUES ('RMV-MATH-1', ?, 1, 'Mathematics & Time Mastery Quest', 'Initial teacher-authored math quest.', '{}', 20, 'Approved for Grade 5 Math', 'usr-teacher-1', ?)`
+        )
+        .run(rm2, now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO roadmap_stages (
+            id, roadmap_id, version_number, sort_order, title, description, theme_color, milestone_reward_badge_id, created_at
+          ) VALUES ('RSTG-MATH-1', ?, 1, 1, 'Stage 1: Everyday Arithmetic', 'Master clock minutes and bus word problem steps.', '#F96A1B', 'RWD-MATH-BADGE', ?)`
+        )
+        .run(rm2, now);
+
+      insLvl.run(
+        'RLVL-M1', rm2, 'RSTG-MATH-1', 1, 'Math Step 1: Time & Clock Check',
+        'Quick check on hour-to-minute conversion.', '["Convert hours to minutes accurately"]',
+        '["subj-math"]', '["top-math-time"]', 1, '{"Simple":100,"Moderate":0,"Challenging":0,"Master":0}', 60, 1, 0, 25, 2, 10, null
+      );
+      insLvl.run(
+        'RLVL-M2', rm2, 'RSTG-MATH-1', 2, 'Math Step 2: Word Problem Checkpoint',
+        'Apply net addition/subtraction on bus passenger stories.', '["Solve multi-step remainder word problems"]',
+        '["subj-math"]', '["top-math-money","top-math-time"]', 2, '{"Simple":50,"Moderate":50,"Challenging":0,"Master":0}', 70, 1, 1, 45, 3, 20, 'RWD-MATH-BADGE'
+      );
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO roadmap_level_prerequisites (id, roadmap_id, version_number, level_id, prerequisite_level_id)
+           VALUES ('RLP-M1', ?, 1, 'RLVL-M2', 'RLVL-M1')`
+        )
+        .run(rm2);
+
+      insMiss.run(
+        'RMIS-M1', rm2, 'RLVL-M1', 1, 'Clock Pizza Sprint',
+        'Practice converting hours to minutes with helpful hints.', 'topic_practice',
+        '["subj-math"]', '["top-math-time"]', 1, '{"Simple":100,"Moderate":0,"Challenging":0,"Master":0}', null, 1, 0, 60, 25, 2, 10
+      );
+      insMiss.run(
+        'RMIS-M2', rm2, 'RLVL-M2', 1, 'Bus Counter Checkpoint',
+        'Pass this Grade 5 Math checkpoint to unlock the Math Explorer Badge.', 'mastery_checkpoint',
+        '["subj-math"]', '["top-math-money","top-math-time"]', 2, '{"Simple":50,"Moderate":50,"Challenging":0,"Master":0}', 240, 1, 0, 70, 45, 3, 20
+      );
+
+      // Seed mission configs
+      const allMissions = this.db.prepare('SELECT id, mission_type FROM roadmap_missions').all() as {
+        id: string;
+        mission_type: string;
+      }[];
+      const insCfg = this.db.prepare(
+        `INSERT OR IGNORE INTO roadmap_mission_configs (mission_id, selection_rules_json, puzzle_hint_mode, allow_retry, max_attempts_per_day)
+         VALUES (?, '{}', ?, 1, 8)`
+      );
+      for (const m of allMissions) {
+        insCfg.run(m.id, m.mission_type === 'puzzle' ? 1 : 0);
+      }
+
+      // Enroll Sayuri & Kasun cleanly with Level 1 AVAILABLE and downstream levels LOCKED
+      for (const sid of ['usr-student-1', 'usr-student-2']) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO student_roadmap_enrollments (id, student_id, roadmap_id, enrolled_at, current_level_id, status)
+             VALUES (?, ?, ?, ?, 'RLVL-1', 'ACTIVE'), (?, ?, ?, ?, 'RLVL-M1', 'ACTIVE')`
+          )
+          .run(`SRE-${sid}-1`, sid, rm1, now, `SRE-${sid}-2`, sid, rm2, now);
+
+        const levelsSeed = [
+          [rm1, 'RLVL-1', 'AVAILABLE'],
+          [rm1, 'RLVL-2', 'LOCKED'],
+          [rm1, 'RLVL-3', 'LOCKED'],
+          [rm1, 'RLVL-4', 'LOCKED'],
+          [rm2, 'RLVL-M1', 'AVAILABLE'],
+          [rm2, 'RLVL-M2', 'LOCKED'],
+        ] as const;
+
+        for (const [rId, lId, st] of levelsSeed) {
+          this.db
+            .prepare(
+              `INSERT OR IGNORE INTO student_level_progress (
+                id, student_id, roadmap_id, level_id, status, best_accuracy_percent,
+                missions_completed_count, checkpoint_passed, objectives_covered_json,
+                unlocked_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, '[]', ?, ?)`
+            )
+            .run(`SLP-${sid}-${lId}`, sid, rId, lId, st, st === 'AVAILABLE' ? now : null, now);
+        }
+      }
+
+      // Give Sayuri one initial Welcome Balance Shield reward so Rewards Collection has initial seeded proof
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO student_reward_transactions (
+            id, student_id, roadmap_id, level_id, mission_attempt_id, reward_type, reward_def_id,
+            amount, reason, idempotency_key, created_at
+          ) VALUES
+          ('SRT-SEED-XP-1', 'usr-student-1', ?, 'RLVL-1', NULL, 'xp', NULL, 65, 'Foundational Grade 5 practice progress carried into Quest Explorer', 'seed-xp-sayuri-1', ?),
+          ('SRT-SEED-COIN-1', 'usr-student-1', ?, 'RLVL-1', NULL, 'coins', NULL, 25, 'Initial Explorer Coins for steady daily study habits', 'seed-coins-sayuri-1', ?),
+          ('SRT-SEED-SHIELD-1', 'usr-student-1', ?, 'RLVL-1', NULL, 'mastery_achievement', 'RWD-BALANCED-SHIELD', 1, 'Balanced Study Shield unlocked for healthy break habits', 'seed-shield-sayuri-1', ?)`
+        )
+        .run(rm1, now, rm1, now, rm1, now);
+
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO student_unlocked_rewards (
+            id, student_id, reward_def_id, earned_via_transaction_id, equipped, unlocked_at
+          ) VALUES ('SUR-SEED-1', 'usr-student-1', 'RWD-BALANCED-SHIELD', 'SRT-SEED-SHIELD-1', 1, ?)`
+        )
+        .run(now);
+    });
+
+    const fkErrors = this.db.prepare('PRAGMA foreign_key_check').all();
+    if (fkErrors.length > 0) {
+      throw new Error(`Foreign key integrity check failed after migration 10: ${JSON.stringify(fkErrors)}`);
     }
   }
 
